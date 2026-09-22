@@ -19,6 +19,7 @@ Porymap Documentation
     manual/creating-new-maps
     manual/region-map-editor
     manual/tileset-editor
+    manual/porytiles-workflow
     manual/scripting-capabilities
     manual/project-files
     manual/breaking-changes

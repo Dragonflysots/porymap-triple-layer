@@ -4,7 +4,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project somewhat adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).  The MAJOR version number is bumped when there are **"Breaking Changes"** in the pret projects. For more on this, see [the manual page on breaking changes](https://huderlem.github.io/porymap/manual/breaking-changes.html).
 
-## [Unreleased]
+## [Unreleased] - This fork
+This section covers this fork ([Dragonflysots/porymap-triple-layer][fork]) only, on top of the upstream `[6.3.1]`
+release below. See `ARCHITECTURE.md` for the implementation-level explanation and
+`docsrc/manual/porytiles-workflow.rst` for the user manual page.
+
+### Added
+- The Porymap/Finalmap workflow: a "Maps" tab now has two sub-tabs, **Porymap** (a 3-layer design view painted with
+  single-layer **porytiles**) and **Finalmap** (the original map view, renamed for clarity). **Write to Finalmap**
+  turns the Porymap view into real metatiles (deduplicating, reusing what exists, growing the tileset as needed,
+  never overwriting anything); **Pull to Porymap** rebuilds the layers from an existing map, pixel-for-pixel.
+- Per-field behaviors on the Porymap view (in addition to the existing per-metatile behavior), shown as coloured hex
+  numbers with an opacity slider; a placed field behavior overrides the porytile's own.
+- Tileset Editor rework: **Porytiles | Generated Metatiles** outer tabs, each with **Paint | Behavior** inner pages;
+  direct painting on the sheet, a layer bar with eyes, selection framing, behavior/label filters with crossed-out
+  marks, numbered labels, four independent undo histories.
+- A proper, DPI-aware, zoom-invariant divider line between the primary and secondary tileset/porytile set
+  (`TilesetDividerItem`), on every metatile/porytile selector including both main-window palettes.
+- Edge-of-map painting in the Porymap view: a block selection that hangs over the map edge places only its in-bounds
+  part, with a live firm/faint preview; the pointer keeps reacting in the margin so a large block can be anchored
+  outside the map and still reach in. Also applies to moving a selection and to pasting.
+- **Clear Layers** / **Clean the Map** erasers.
+- An on/off switch for all of the above: tied to the existing `Enable triple layer metatiles` project setting, so a
+  project with it unchecked — including any unrelated project opened with the same binary — looks and behaves
+  exactly like upstream Porymap.
+
+### Changed
+- The old Map Objects / prefabs system (`prefab.*`, `prefabcreationdialog.*`, `prefabframe.*`, `metatilelayersitem.*`)
+  was removed; the Porymap-view workflow above replaces it.
+
+### Verified with
+- A headless UI test harness (not part of this repository) that boots the real `MainWindow`, drives it with real
+  synthetic mouse/keyboard events against a cloned project, and compares rendered pixels and on-disk JSON: ~1100
+  checks, each with at least one negative control (a deliberate bug that must make the check fail, then is reverted).
+
+[fork]: https://github.com/Dragonflysots/porymap-triple-layer
+
+## [Unreleased] (upstream)
 Nothing, yet.
 
 ## [6.3.1] - 2026-04-12
