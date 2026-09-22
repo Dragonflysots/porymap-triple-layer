@@ -41,7 +41,7 @@ public:
             delete history.takeLast();
         }
         if (saved > head) {
-            saved = -1;
+            saved = kSavedLost; // the saved state lived in the redo branch that was just dropped: no step reaches it any more
         }
         history.append(commit);
         head++;
@@ -54,10 +54,20 @@ public:
         return history.at(head);
     }
 
+    // The step a next() would return, without moving (NULL when there is none).
+    T peekNext() const {
+        if (head + 1 < history.length()) {
+            return history.at(head + 1);
+        }
+        return NULL;
+    }
+
     void save() {
         saved = head;
     }
 
+    // True while the history is at the state that was last save()d. An empty history counts as saved (clear()). Once the saved
+    // state is unreachable (kSavedLost) this is false for every position, including the empty one.
     bool isSaved() const {
         return saved == head;
     }
@@ -83,6 +93,7 @@ public:
     }
 
 private:
+    static constexpr int kSavedLost = -2;
     QList<T> history;
     int head = -1;
     int saved = -1;

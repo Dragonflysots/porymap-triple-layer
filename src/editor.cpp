@@ -1,4 +1,7 @@
 #include "editor.h"
+#include "premapcommands.h"
+#include "projectsheets.h"
+#include "sheetbehaviorpanel.h"
 #include "eventpixmapitem.h"
 #include "imageproviders.h"
 #include "log.h"
@@ -122,6 +125,10 @@ void Editor::closeProject() {
     Scripting::cb_ProjectClosed(this->project->root);
     Scripting::stop();
     clearMap();
+    qDeleteAll(this->preMapStacks); // the Porymap-view undo histories belong to this project
+    this->preMapStacks.clear();
+    qDeleteAll(this->preMapBehaviorStacks);
+    this->preMapBehaviorStacks.clear();
     delete this->project;
 }
 
@@ -150,6 +157,8 @@ void Editor::setEditMode(EditMode editMode) {
     case EditMode::Collision:
         current_view = collision_item;
         break;
+    case EditMode::Behaviors:      // Porymap view: nothing of the real map is shown or editable
+    case EditMode::PorymapObjects: // (the Map Objects are edited by the pre-map item itself, not through a view item)
     default:
         current_view = nullptr;
         break;
@@ -160,19 +169,10 @@ void Editor::setEditMode(EditMode editMode) {
 
     if (current_view) current_view->setVisible(true);
 
-    updateBorderVisibility();
+    applyViewMode(); // which items are shown (Porymap view / Finalmap); also refreshes border + connections
 
-    QUndoStack *editStack = this->map ? this->map->editHistory() : nullptr;
-    bool editingLayout = getEditingLayout();
-    if (editingLayout && this->layout) {
-        editStack = &this->layout->editHistory;
-    }
-
-    this->editGroup.setActiveStack(editStack);
-    this->ui->toolButton_Fill->setEnabled(editingLayout);
-    this->ui->toolButton_Dropper->setEnabled(editingLayout);
-    this->ui->pushButton_ChangeDimensions->setEnabled(editingLayout);
-    this->ui->checkBox_smartPaths->setEnabled(editingLayout);
+    updateActiveUndoStack();
+    applyToolAvailability();
 
     if (this->editMode != oldEditMode) {
         // When switching to or from the Connections tab we sync up the two separate map graphics views.
@@ -195,6 +195,13 @@ void Editor::setEditMode(EditMode editMode) {
     if (current_view) {
         // Updating the edit action is only relevant for edit modes with a graphics view.
         setEditAction(getEditAction());
+    } else if (isPorymapView()) {
+        // The Porymap view has no current_view of its own, but coming from the Events tab the toolbar highlight, the map ruler and
+        // the drag mode still belong to the Events tools: bring them in line with this view's tool (without changing the tool the
+        // user chose).
+        this->applyingToolFallback = true;
+        setEditAction(getEditAction());
+        this->applyingToolFallback = false;
     }
 }
 
@@ -203,6 +210,8 @@ Editor::EditAction Editor::getEditAction() const {
 }
 
 void Editor::setEditAction(EditAction editAction) {
+    if (!this->applyingToolFallback && this->editMode != EditMode::Events)
+        this->preferredMapAction = editAction;
     if (this->editMode == EditMode::Events) {
         this->eventEditAction = editAction;
         this->map_ruler->setEnabled(editAction == EditAction::Select);
@@ -245,7 +254,27 @@ void Editor::setEditAction(EditAction editAction) {
                 this->collision_item->setCursor(cursor);
         }
     }
+    if (this->preMapItem) {
+        this->preMapItem->clearSelection();
+        this->preMapItem->update();   // (the preview of the pencil's block is only there for the pencil)
+    }
+    updatePreMapCursor();
     emit editActionSet(editAction);
+}
+
+// The pencil cursor on the Porymap view's Map Object canvas (the metatile/elevation items are hidden there and keep theirs).
+void Editor::updatePreMapCursor() {
+    if (!this->preMapItem)
+        return;
+    const EditAction action = getEditAction();
+    QString icon;
+    if (action == EditAction::Paint) icon = ":/icons/pencil_cursor.ico";
+    else if (action == EditAction::Fill) icon = ":/icons/fill_color_cursor.ico";
+    else if (action == EditAction::Pick) icon = ":/icons/pipette_cursor.ico";
+    if (this->settings->betterCursors && isPorymapView() && !icon.isEmpty())
+        this->preMapItem->setCursor(QCursor(QPixmap(icon), 10, 10));
+    else
+        this->preMapItem->unsetCursor();
 }
 
 void Editor::clearWildMonTables() {
@@ -1090,8 +1119,8 @@ void Editor::onBorderMetatilesChanged() {
     updateBorderVisibility();
 }
 
-void Editor::onHoveredMovementPermissionChanged(uint16_t collision, uint16_t elevation) {
-    this->ui->statusBar->showMessage(this->getMovementPermissionText(collision, elevation));
+void Editor::onHoveredMovementPermissionChanged(uint16_t, uint16_t elevation) {
+    this->ui->statusBar->showMessage(this->getElevationText(elevation));
 }
 
 void Editor::onHoveredMovementPermissionCleared() {
@@ -1188,11 +1217,12 @@ void Editor::setCursorRectPos(const QPoint &pos) {
 
 void Editor::updateCursorRectVisibility() {
     bool mouseInMap = isMouseInMap();
+    const bool rommap = !isPorymapView();   // CUSTOM ENGINE: both rectangles belong to the Finalmap; the pre-map item draws its own hover frame
     bool changed = false;
 
     if (this->playerViewRect) {
         bool visible = this->settings->playerViewRectEnabled
-                        && mouseInMap
+                        && mouseInMap && rommap
                         && this->editMode != EditMode::Connections;
 
         if (visible != this->playerViewRect->isVisible()) {
@@ -1204,7 +1234,7 @@ void Editor::updateCursorRectVisibility() {
     if (this->cursorMapTileRect) {
         auto editAction = getEditAction();
         bool visible = this->settings->cursorTileRectEnabled
-                        && mouseInMap
+                        && mouseInMap && rommap
                         // Only show the tile cursor for tools that apply at a specific tile
                         && editAction != EditAction::Select
                         && editAction != EditAction::Move;
@@ -1260,7 +1290,12 @@ void Editor::setStatusFromMapPos(const QPoint &pos) {
         this->ui->statusBar->showMessage(QString("X: %1, Y: %2, %3")
                               .arg(pos.x())
                               .arg(pos.y())
-                              .arg(this->getMovementPermissionText(block.collision(), block.elevation())));
+                              .arg(this->getElevationText(block.elevation())));
+    } else if (this->editMode == EditMode::Behaviors) {
+        uint32_t id = behaviorIdAtMapPos(pos);
+        QString behavior = id ? QString("Behavior 0x%1 %2").arg(id, 2, 16, QChar('0')).arg(this->project->metatileBehaviorMapInverse.value(id).toUpper())
+                              : QString("no Behavior");
+        this->ui->statusBar->showMessage(QString("X: %1, Y: %2, %3").arg(pos.x()).arg(pos.y()).arg(behavior));
     } else if (this->editMode == EditMode::Events) {
         this->ui->statusBar->showMessage(QString("X: %1, Y: %2, Scale = %3x")
                               .arg(pos.x())
@@ -1269,20 +1304,24 @@ void Editor::setStatusFromMapPos(const QPoint &pos) {
     }
 }
 
-QString Editor::getMovementPermissionText(uint16_t collision, uint16_t elevation) {
-    QString message;
-    if (collision != 0) {
-        message = QString("Collision: Impassable (%1), Elevation: %2").arg(collision).arg(elevation);
-    } else if (elevation == 0) {
-        message = "Collision: Transition between elevations";
-    } else if (elevation == 15) {
-        message = "Collision: Multi-Level (Bridge)";
-    } else if (elevation == 1) {
-        message = "Collision: Surf";
-    } else {
-        message = QString("Collision: Passable, Elevation: %1").arg(elevation);
-    }
-    return message;
+// CUSTOM ENGINE: the 8 elevation values of the custom map.bin layout, named after the enum in
+// pokeemerald's include/global.fieldmap.h (ELEVATION_TRANSITION ... ELEVATION_MULTI_LEVEL).
+QString Editor::getElevationName(uint16_t elevation) {
+    static const char *const names[8] = {
+        "Transition between elevations", // 0 ELEVATION_TRANSITION
+        "Surf",                          // 1 ELEVATION_SURF
+        "Default",                       // 2 ELEVATION_DEFAULT
+        "Shelf low",                     // 3 ELEVATION_SHELF_LOW
+        "Shelf mid",                     // 4 ELEVATION_SHELF_MID
+        "Shelf high",                    // 5 ELEVATION_SHELF_HIGH
+        "Reserved",                      // 6 ELEVATION_RESERVED
+        "Multi-level (bridge)",          // 7 ELEVATION_MULTI_LEVEL
+    };
+    return elevation < 8 ? QString(names[elevation]) : QString("Elevation %1").arg(elevation);
+}
+
+QString Editor::getElevationText(uint16_t elevation) {
+    return QString("Elevation %1: %2").arg(elevation).arg(getElevationName(elevation));
 }
 
 void Editor::unsetMap() {
@@ -1318,7 +1357,10 @@ bool Editor::setMap(QString map_name) {
     setLayout(map->layoutId());
 
     editGroup.addStack(map->editHistory());
-    editGroup.setActiveStack(map->editHistory());
+    if (isPorymapView())
+        updateActiveUndoStack();
+    else
+        editGroup.setActiveStack(map->editHistory());
 
     this->selectedEvents.clear();
     if (!displayMap()) {
@@ -1435,6 +1477,86 @@ bool Editor::isMiddleButtonScrollInProgress() const {
     if (this->editMode == EditMode::Connections)
         return ui->graphicsView_Connections->getIsMiddleButtonScrollInProgress();
     return ui->graphicsView_Map->getIsMiddleButtonScrollInProgress();
+}
+
+// Which undo history Ctrl+Z / Ctrl+Y act on. The Porymap view has none yet (Map Object edits are not undoable until the
+// pre-map gets its own history): with the map's event history active there, Undo would silently revert edits nobody can see.
+void Editor::updateActiveUndoStack() {
+    QUndoStack *editStack = this->map ? this->map->editHistory() : nullptr;
+    if (isPorymapView())   // (off while the pencil is down; the Behaviors tab has its own history)
+        editStack = (this->layout && !this->preMapStrokeActive) ? (this->editMode == EditMode::Behaviors ? preMapBehaviorStackFor(this->layout->id) : preMapStackFor(this->layout->id)) : nullptr;
+    else if (getEditingLayout() && this->layout)
+        editStack = &this->layout->editHistory;
+    this->editGroup.setActiveStack(editStack);
+}
+
+QUndoStack *Editor::preMapStackFor(const QString &layoutId) {
+    QUndoStack *&stack = this->preMapStacks[layoutId];
+    if (!stack) {
+        stack = new QUndoStack(this);
+        this->editGroup.addStack(stack);
+    }
+    return stack;
+}
+
+QUndoStack *Editor::preMapBehaviorStackFor(const QString &layoutId) {
+    QUndoStack *&stack = this->preMapBehaviorStacks[layoutId];
+    if (!stack) {
+        stack = new QUndoStack(this);
+        this->editGroup.addStack(stack);
+    }
+    return stack;
+}
+
+std::function<void(const QString &)> Editor::preMapSaveFailedHook;
+
+bool Editor::savePreMap(const QString &layoutId) {
+    if (this->preMap.save(layoutId)) {
+        if (this->preMapUnsavedLayoutId == layoutId)
+            this->preMapUnsavedLayoutId.clear();
+        return true;
+    }
+    const bool first = this->preMapUnsavedLayoutId.isEmpty(); // one message per failure streak, not one per stroke
+    this->preMapUnsavedLayoutId = layoutId;
+    if (first) {
+        const QString path = QString("data/layers/%1/layers.json").arg(layoutId);
+        if (preMapSaveFailedHook)
+            preMapSaveFailedHook(path);
+        else
+            ErrorMessage::show(QStringLiteral("Could not save the porytiles of this map!"),
+                               QString("%1 could not be written (disk full or no permission?). Your latest changes are only kept in memory until saving works again.").arg(path), nullptr);
+    }
+    return false;
+}
+
+void Editor::pushPreMapStroke(const PreMapStroke &stroke, const QString &layoutId) {
+    (stroke.behaviors ? preMapBehaviorStackFor(layoutId) : preMapStackFor(layoutId))->push(new PreMapStrokeCommand(this, layoutId, stroke));
+    savePreMap(layoutId); // auto-save: the file always shows the state the user sees
+}
+
+void Editor::pushPreMapShift(QPoint delta) {
+    if (!this->layout || delta == QPoint(0, 0))
+        return;
+    preMapStackFor(this->layout->id)->push(new PreMapShiftCommand(this, this->layout->id, delta));
+}
+
+void Editor::pushPreMapAlpha(int layer, bool value) {
+    if (!this->layout || this->preMap.alphaFlag(layer) == value)
+        return;
+    preMapStackFor(this->layout->id)->push(new PreMapAlphaCommand(this, this->layout->id, layer, !value, value));
+}
+
+void Editor::afterPreMapChanged(bool alphaChanged) {
+    if (this->preMapItem)
+        this->preMapItem->draw();
+    if (alphaChanged)
+        emit this->preMapLayersLoaded(); // the layer bar's alpha checkboxes follow the data
+    if (this->layout)
+        savePreMap(this->layout->id);
+}
+
+bool Editor::preMapPressPassesThrough(const QGraphicsSceneMouseEvent *event) const {
+    return event->button() == Qt::MiddleButton || getEditAction() == EditAction::Move || isMiddleButtonScrollInProgress();
 }
 
 void Editor::mouseEvent_map(QGraphicsSceneMouseEvent *event, LayoutPixmapItem *item) {
@@ -1639,6 +1761,49 @@ void Editor::displayMetatileSelector() {
     scene_metatiles->addItem(metatile_selector_item);
 }
 
+// ---- CUSTOM ENGINE: the porytile palette of the Porymap view ------------------------------------------------------------------------------------
+// (the scene lives as long as the editor: the main window's view keeps pointing at it across map switches, tileset changes and reloads)
+void Editor::clearPorytileSelector() {
+    if (porytile_selector_item && porytile_selector_item->scene())
+        porytile_selector_item->scene()->removeItem(porytile_selector_item);
+}
+
+void Editor::redrawPaletteDividers() {
+    if (this->metatile_selector_item)
+        this->metatile_selector_item->draw();
+    if (this->porytile_selector_item)
+        this->porytile_selector_item->draw();
+}
+
+void Editor::displayPorytileSelector() {
+    clearPorytileSelector();
+    if (!scene_porytiles)
+        scene_porytiles = new QGraphicsScene(this);
+    if (!porytile_selector_item) {
+        porytile_selector_item = new MetatileSelector(projectConfig.metatileSelectorWidth, this->layout, BlockKind::Porytile);
+        porytile_selector_item->select(0);
+        connect(porytile_selector_item, &MetatileSelector::selectedMetatilesChanged, this, [this] {
+            if (this->preMapItem) this->preMapItem->update();   // (the hover frame shows the footprint of the brush)
+        });
+    } else {
+        porytile_selector_item->setLayout(this->layout);
+    }
+    scene_porytiles->addItem(porytile_selector_item);
+    porytile_selector_item->draw();
+    scene_porytiles->setSceneRect(0, 0, porytile_selector_item->pixmap().width(), porytile_selector_item->pixmap().height());
+}
+
+PorytileSelection Editor::porytileSelection() const {
+    PorytileSelection selection;
+    if (!porytile_selector_item)
+        return selection;
+    const MetatileSelection picked = porytile_selector_item->getMetatileSelection();
+    selection.dims = picked.dimensions;
+    for (const MetatileSelectionItem &item : picked.metatileItems)
+        selection.ids.append(item.enabled ? item.metatileId : 0);
+    return selection;
+}
+
 void Editor::clearMapMetatiles() {
     if (map_item && scene) {
         scene->removeItem(map_item);
@@ -1657,11 +1822,285 @@ void Editor::displayMapMetatiles() {
     connect(map_item, &LayoutPixmapItem::hoverChanged, this, &Editor::onMapHoverChanged);
     connect(map_item, &LayoutPixmapItem::hoverCleared, this, &Editor::onMapHoverCleared);
 
+    map_item->hiddenLayers = this->finalmapHiddenLayerMask;
     map_item->draw(true);
     scene->addItem(map_item);
 
     // Scene rect is the map plus a margin that gives enough space to scroll and see the edge of the player view rectangle.
     scene->setSceneRect(this->layout->getVisibleRect() + QMargins(3,3,3,3));
+
+    displayPreMapLayers();
+}
+
+void Editor::setFinalmapLayerVisible(int layer, bool visible) {
+    if (layer < 0 || layer > 2)   // (Bottom / Middle / Top)
+        return;
+    const int mask = visible ? (this->finalmapHiddenLayerMask & ~(1 << layer)) : (this->finalmapHiddenLayerMask | (1 << layer));
+    if (mask == this->finalmapHiddenLayerMask)
+        return;
+    this->finalmapHiddenLayerMask = mask;
+    if (this->map_item) {
+        this->map_item->hiddenLayers = mask;
+        this->map_item->draw(true);
+    }
+}
+
+void Editor::clearPreMapLayers() {
+    if (preMapItem && scene) {
+        scene->removeItem(preMapItem);
+        delete preMapItem;
+    }
+    this->preMapStrokeActive = false;
+}
+
+// CUSTOM ENGINE: overlays the pre-map (placed prefabs across the 3 editor layers) on top of the
+// regular metatile view, and loads this layout's working state from data/layers/<id>/layers.json.
+void Editor::displayPreMapLayers() {
+    clearPreMapLayers();
+    if (!this->layout) return;
+    displayPorytileSelector();
+
+    const QSize layoutSize(this->layout->getWidth(), this->layout->getHeight());
+    // A layout whose last save failed keeps its in-memory porytiles (a reload would put the older file over them); saving is retried.
+    if (this->preMapUnsavedLayoutId == this->layout->id && this->preMapLoadedLayoutId == this->layout->id) {
+        if (this->preMap.size() != layoutSize)
+            this->preMap.resize(layoutSize, QMargins());
+        savePreMap(this->layout->id);
+    } else {
+        this->preMap.load(this->layout->id, layoutSize);
+        this->preMapLoadedLayoutId = this->layout->id;
+    }
+    {
+        const PreMap::LoadReport &report = this->preMap.lastLoadReport();
+        if (!report.oldFormatAside.isEmpty()) {
+            ui->statusBar->showMessage(QString("The Map Objects of this map (an older layers.json) were set aside: %1. The map starts with Porytile 0 everywhere.").arg(report.oldFormatAside), 15000);
+        } else if (report.sizeAdjusted) {
+            ui->statusBar->showMessage(QStringLiteral("The porytile grid of this map had another size than the layout: it was cropped / extended."), 15000);
+            savePreMap(this->layout->id); // the Porymap data is always auto-saved: the file follows what is shown
+        }
+    }
+
+    preMapItem = new PreMapPixmapItem(this->layout, &this->preMap, this);
+    updatePreMapCursor();
+    // One stroke (press..release) is one undo step and one write of the file. The layout id is captured NOW: a stroke that ends because the map
+    // is being switched (the old item is removed first) must still be saved under the OLD layout, never under the one that is being opened.
+    connect(preMapItem, &PreMapPixmapItem::strokeFinished, this, [this, layoutId = this->layout->id](const PreMapStroke &stroke) {
+        pushPreMapStroke(stroke, layoutId);
+    });
+    // The eyedropper (right button, Pick tool): the porytiles under the cursor become the palette's selection.
+    connect(preMapItem, &PreMapPixmapItem::porytilePicked, this, [this](const PorytileSelection &picked) {
+        if (!porytile_selector_item || !picked.isValid())
+            return;
+        if (picked.dims == QSize(1, 1))
+            porytile_selector_item->select(picked.ids.first());
+        else   // (the selector wants a collision entry per block; the porytiles have none)
+            porytile_selector_item->setExternalSelection(picked.dims.width(), picked.dims.height(), picked.ids, QList<QPair<uint16_t, uint16_t>>(picked.ids.size(), qMakePair<uint16_t, uint16_t>(0, 0)));
+        static const char *names[3] = { "Bottom", "Middle", "Top" };
+        ui->statusBar->showMessage(picked.dims == QSize(1, 1) ? QString("Picked Porytile %1 from the %2 layer").arg(Metatile::getMetatileIdString(picked.ids.first()), names[static_cast<int>(this->preMapLayer)])
+                                                              : QString("Picked %1x%2 porytiles from the %3 layer").arg(picked.dims.width()).arg(picked.dims.height()).arg(names[static_cast<int>(this->preMapLayer)]), 4000);
+    });
+    // The eyedropper of the Behaviors tab: the main window's list follows it (what the field shows becomes the brush).
+    connect(preMapItem, &PreMapPixmapItem::behaviorPicked, this, [this](uint16_t stored, uint32_t shown) {
+        emit this->preMapBehaviorPicked(stored, shown);
+        const uint32_t named = stored != PreMap::kAutoBehavior ? stored : shown;
+        ui->statusBar->showMessage(stored != PreMap::kAutoBehavior || shown != 0
+                                       ? QString("Picked Behavior 0x%1 %2%3").arg(named, 2, 16, QChar('0')).arg(this->project->metatileBehaviorMapInverse.value(named).toUpper(), stored == PreMap::kAutoBehavior ? " (Auto, from the porytiles)" : " (placed)")
+                                       : QStringLiteral("Picked Auto (the field has no behavior)"), 4000);
+    });
+    preMapItem->setMode(this->editMode == EditMode::Behaviors ? PreMapPixmapItem::Mode::Behaviors : PreMapPixmapItem::Mode::Porytiles);
+    connect(this, &Editor::preMapLayerChanged, preMapItem, [this](int) { if (preMapItem) preMapItem->clearSelection(); });
+    connect(preMapItem, &PreMapPixmapItem::shiftRequested, this, [this](const QPoint &delta) { pushPreMapShift(delta); });
+    connect(preMapItem, &PreMapPixmapItem::strokeActiveChanged, this, [this](bool active) {
+        this->preMapStrokeActive = active;
+        emit editActionSet(getEditAction()); // (refreshes the Undo/Redo actions)
+    });
+    // The status bar names the field under the cursor and what its three layers hold; the tools only ever act on the ACTIVE layer.
+    connect(preMapItem, &PreMapPixmapItem::hoveredMetatile, this, [this](const QPoint &field) {
+        if (this->editMode == EditMode::Behaviors) {
+            // what the field shows and where that comes from: placed here, or inherited from a layer's porytile
+            static const char *names[3] = { "Bottom", "Middle", "Top" };
+            const bool placed = this->preMap.hasPlacedBehavior(field.x(), field.y());
+            int fromLayer = -1;
+            const uint32_t derived = this->preMapItem ? this->preMapItem->derivedBehaviorAt(field.x(), field.y(), &fromLayer) : 0;
+            const uint32_t shown = placed ? this->preMap.behaviorAt(field.x(), field.y()) : derived;
+            auto name = [this](uint32_t id) { return QString("0x%1 %2").arg(id, 2, 16, QChar('0')).arg(this->project->metatileBehaviorMapInverse.value(id, QStringLiteral("?")).toUpper()); };
+            QString text;
+            if (placed)
+                text = QString("Behavior %1 (placed here%2)").arg(name(shown), derived != 0 ? QString("; the porytiles would give %1").arg(name(derived)) : QString());
+            else if (shown != 0)
+                text = QString("Behavior %1 (Auto: from the %2 porytile)").arg(name(shown), names[qBound(0, fromLayer, 2)]);
+            else
+                text = QStringLiteral("Behavior 0x00 MB_NORMAL (Auto: nothing special)");
+            ui->statusBar->showMessage(QString("X: %1, Y: %2, %3").arg(field.x()).arg(field.y()).arg(text));
+        } else if (this->editMode == EditMode::PorymapObjects) {
+            static const char *names[3] = { "Bottom", "Middle", "Top" };
+            const int layer = static_cast<int>(this->preMapLayer);
+            ui->statusBar->showMessage(QString("X: %1, Y: %2, Active layer: %3 (Porytile %4)   Bottom %5, Middle %6, Top %7")
+                                        .arg(field.x()).arg(field.y()).arg(names[layer], Metatile::getMetatileIdString(this->preMap.at(layer, field.x(), field.y())),
+                                             Metatile::getMetatileIdString(this->preMap.at(0, field.x(), field.y())), Metatile::getMetatileIdString(this->preMap.at(1, field.x(), field.y())),
+                                             Metatile::getMetatileIdString(this->preMap.at(2, field.x(), field.y()))));
+        }
+    });
+    preMapItem->draw();
+    scene->addItem(preMapItem);
+
+    // The Behaviors tab's overlay sits right above the pre-map and redraws whenever what it shows can have changed: a field was painted, a
+    // layer was shown / hidden, or the porytiles' behaviors were edited in the Tileset Editor (a tileset save redraws everything).
+    if (this->behaviorOverlayItem) {
+        scene->removeItem(this->behaviorOverlayItem);
+        delete this->behaviorOverlayItem;
+    }
+    this->behaviorOverlayItem = new BehaviorOverlayItem(this->layout, &this->preMap, preMapItem, &this->project->metatileBehaviorMap);
+    this->behaviorOverlayItem->setSheet(&this->behaviorSheet);
+    this->behaviorOverlayItem->setOpacity(qBound(0, porymapConfig.behaviorOverlayOpacity, 100) / 100.0);   // (the Behaviors tab's Opacity slider)
+    connect(preMapItem, &PreMapPixmapItem::hoverCellChanged, this->behaviorOverlayItem, [this](const QPoint &field) {   // (the pencil's frame, above the numbers)
+        if (this->behaviorOverlayItem)
+            this->behaviorOverlayItem->setHoverField(this->editMode == EditMode::Behaviors ? field : QPoint(-1, -1));
+    });
+    connect(preMapItem, &PreMapPixmapItem::drawn, behaviorOverlayItem, [this]() { if (behaviorOverlayItem) behaviorOverlayItem->draw(); });
+    connect(preMapItem, &PreMapPixmapItem::regionChanged, behaviorOverlayItem, [this](const QRect &pixels) { if (behaviorOverlayItem) behaviorOverlayItem->drawRegion(pixels); });
+    connect(preMapItem, &PreMapPixmapItem::layerVisibilityChanged, behaviorOverlayItem, [this]() { if (behaviorOverlayItem) behaviorOverlayItem->draw(); });
+    scene->addItem(this->behaviorOverlayItem);
+
+    applyViewMode(); // Porymap view shows the pre-map, every other tab hides it
+    emit this->preMapLayersLoaded();
+}
+
+bool Editor::isPorymapView() const {
+    return this->editMode == EditMode::PorymapObjects || this->editMode == EditMode::Behaviors;
+}
+
+// CUSTOM ENGINE: the Porymap (design) view and the Finalmap share ONE scene and ONE view (so zoom and scroll
+// position survive switching between them); only the visibility of items changes. Porymap = just the Map
+// Objects (and, on the Behaviors tab, their Behaviors) on an empty checkerboard -- no metatiles, no border,
+// no connections, no events. Finalmap, Events, Connections, ... always show the real, generated map.
+void Editor::applyViewMode() {
+    if (!this->scene || !this->map_item)
+        return;
+    const bool porymap = isPorymapView();
+
+    this->map_item->setVisible(!porymap);
+    if (this->collision_item)
+        this->collision_item->setVisible(!porymap && this->editMode == EditMode::Collision);
+    if (this->events_group)
+        this->events_group->setVisible(!porymap);
+    for (const auto &item : this->diving_map_items)
+        if (item) item->setVisible(!porymap);
+
+    if (this->preMapItem) {
+        this->preMapItem->setVisible(porymap);
+        this->preMapItem->setMode(this->editMode == EditMode::Behaviors ? PreMapPixmapItem::Mode::Behaviors : PreMapPixmapItem::Mode::Porytiles);
+        this->preMapItem->setActive(porymap);   // (both tabs edit through the pre-map item: porytiles, or behaviors)
+        this->preMapItem->setHoverReporting(false);
+    }
+    if (this->behaviorOverlayItem)
+        this->behaviorOverlayItem->setActive(this->editMode == EditMode::Behaviors);
+    updateCursorRectVisibility();   // the Finalmap's metatile cursor and player rectangle are hidden in the Porymap view (they would stay where the mouse last was)
+
+    updateBorderVisibility(); // border + neighbouring maps (also in the Porymap view, display only) and the view's scene rect
+    updatePreMapCursor();
+}
+
+// CUSTOM ENGINE: which of the toolbar's tools make sense in the current view. Everything else is disabled
+// (buttons AND the Tools-menu actions), and the tooltips say what the tool does in that view. If the tool
+// that was active is no longer available, the Pencil (or the Hand) takes over.
+void Editor::applyToolAvailability() {
+    struct Avail { bool paint, select, fill, dropper, move, shift, smartPaths, dimensions; };
+    Avail a;
+    switch (this->editMode) {
+    case EditMode::Metatiles:
+    case EditMode::Collision:      a = { true,  true,  true,  true,  true, true,  true,  true  }; break;
+    case EditMode::Events:         a = { true,  true,  false, false, true, true,  false, false }; break;
+    case EditMode::PorymapObjects: a = { true,  true,  true,  true,  true, true,  false, true  }; break;
+    case EditMode::Behaviors:      a = { true,  false, true,  true,  true, false, false, true  }; break; // pencil / bucket / eyedropper place behaviors (Change Dimensions works everywhere)
+    default: return; // the other tabs do not show this toolbar
+    }
+
+    ui->toolButton_Paint->setEnabled(a.paint);   ui->actionPencil->setEnabled(a.paint);
+    ui->toolButton_Select->setEnabled(a.select); ui->actionPointer->setEnabled(a.select);
+    ui->toolButton_Fill->setEnabled(a.fill);     ui->actionFlood_Fill->setEnabled(a.fill);
+    ui->toolButton_Dropper->setEnabled(a.dropper); ui->actionEyedropper->setEnabled(a.dropper);
+    ui->toolButton_Move->setEnabled(a.move);     ui->actionMove->setEnabled(a.move);
+    ui->toolButton_Shift->setEnabled(a.shift);   ui->actionMap_Shift->setEnabled(a.shift);
+    ui->checkBox_smartPaths->setEnabled(a.smartPaths);
+    ui->pushButton_ChangeDimensions->setEnabled(a.dimensions);
+
+    // tooltips: the designer's text is the default (Finalmap / Events); the Porymap view says what its tools do
+    static QHash<QToolButton *, QString> defaults;
+    if (defaults.isEmpty()) {
+        for (QToolButton *b : {ui->toolButton_Paint, ui->toolButton_Select, ui->toolButton_Fill, ui->toolButton_Dropper, ui->toolButton_Move, ui->toolButton_Shift})
+            defaults.insert(b, b->toolTip());
+    }
+    const bool porymap = isPorymapView();
+    const bool behaviors = this->editMode == EditMode::Behaviors;
+    auto bold = [](const QString &text) { return QString("<span style=\" font-weight:600;\">%1</span>").arg(text); };
+    const QString cmd = bold(SheetBehaviorPanel::cmdKeyName());
+    ui->toolButton_Select->setToolTip(porymap
+        ? QString("<html><head/><body><p>Pointer</p><p>%1 a rectangle of fields of the active layer to select it, drag the selection to move it in whole fields. %2 sets it to Porytile 0, the arrow keys nudge, %3 clears, %4 / %5 copy and paste (paste lands at the field under the mouse).</p></body></html>")
+              .arg(bold("Drag"), bold("Delete"), bold("Esc"), cmd + "+C", cmd + "+V")
+        : defaults.value(ui->toolButton_Select));
+    ui->toolButton_Fill->setToolTip(behaviors
+        ? QString("<html><head/><body><p>Bucket</p><p>%1 a field: every connected field that shows the same behavior gets the chosen one. %2 picks the behavior of the field instead.</p></body></html>").arg(bold("Click"), bold("Right-click"))
+        : porymap
+        ? QString("<html><head/><body><p>Bucket</p><p>%1 a field: it and every connected field of the active layer holding the same porytile get the selected porytiles (a block brush repeats as a pattern). %2 picks the porytile instead.</p></body></html>").arg(bold("Click"), bold("Right-click"))
+        : defaults.value(ui->toolButton_Fill));
+    ui->toolButton_Dropper->setToolTip(behaviors
+        ? QString("<html><head/><body><p>Eyedropper</p><p>%1 a field: the behavior it shows becomes the one the pencil places (Auto if it has none).</p></body></html>").arg(bold("Click"))
+        : porymap
+        ? QString("<html><head/><body><p>Eyedropper</p><p>%1 a field: its porytile on the active layer becomes the brush. The Right mouse button does the same with every tool.</p></body></html>").arg(bold("Click"))
+        : defaults.value(ui->toolButton_Dropper));
+    ui->toolButton_Shift->setToolTip(porymap
+        ? QString("<html><head/><body><p>Shift</p><p>%1 to move ALL three layers and the placed behaviors together by whole fields (nothing wraps around; what leaves the map is gone, Undo brings it back).</p></body></html>").arg(bold("Drag"))
+        : defaults.value(ui->toolButton_Shift));
+    ui->toolButton_Paint->setToolTip(behaviors
+        ? QString("<html><head/><body><p>Pencil</p><p>%1 to place the behavior chosen in the list on the fields under the mouse (Auto takes a placement away, the field shows its porytiles' behavior again). %2 picks the behavior of a field. %3 keeps the line straight.</p></body></html>")
+              .arg(bold("Click or drag"), bold("Right-click"), cmd)
+        : porymap
+        ? QString("<html><head/><body><p>Pencil</p><p>%1 to paint the selected porytiles on the active layer; dragging lays a block brush side by side on its own grid. %2 picks the porytile under the mouse (right-drag a rectangle). Erasing = painting Porytile 0. %3 keeps the line straight.</p><p>A block may hang over the edge of the map: the part on the map is placed, the rest is dropped (the preview shows it faintly). The pencil also works in the margin around the map, so a big block can be anchored outside and still reach in.</p></body></html>")
+              .arg(bold("Click or drag"), bold("Right-click"), cmd)
+        : defaults.value(ui->toolButton_Paint));
+    static const QString dimensionsDefault = ui->pushButton_ChangeDimensions->toolTip();
+    ui->pushButton_ChangeDimensions->setToolTip(porymap
+        ? QStringLiteral("Change the width and height of the map. The Finalmap changes with it and the porytile grid (and the placed behaviors) follow.")
+        : dimensionsDefault);
+
+    // The tool in use: the one the user last picked if this view has it, else the Pencil, else the Hand.
+    auto isAvailable = [&a](EditAction action) {
+        return (action == EditAction::Paint && a.paint) || (action == EditAction::Select && a.select)
+            || (action == EditAction::Fill && a.fill)   || (action == EditAction::Pick && a.dropper)
+            || (action == EditAction::Move && a.move)   || (action == EditAction::Shift && a.shift);
+    };
+    EditAction wanted = (this->editMode == EditMode::Events) ? getEditAction() : this->preferredMapAction;
+    if (!isAvailable(wanted))
+        wanted = a.paint ? EditAction::Paint : EditAction::Move;
+    if (getEditAction() != wanted) {
+        this->applyingToolFallback = true;
+        setEditAction(wanted);
+        this->applyingToolFallback = false;
+    }
+}
+
+// CUSTOM ENGINE: (re)loads the project's behavior sheet, generating it first if it is missing.
+void Editor::loadBehaviorSheet() {
+    QString relative = ProjectSheets::ensureBehaviorSheet(projectConfig.projectDir());
+    QImage sheet;
+    if (!relative.isEmpty())
+        sheet = QImage(QDir(projectConfig.projectDir()).filePath(relative));
+    if (sheet.isNull()) {
+        logWarn("Failed to load the behavior sheet, using a built-in one.");
+        sheet = ProjectSheets::renderBehaviorSheet();
+    }
+    this->behaviorSheet = sheet;
+    if (this->behaviorOverlayItem)
+        this->behaviorOverlayItem->draw();
+}
+
+// The behavior shown on the metatile at a map position: looked up at the center of that 16x16 metatile.
+uint32_t Editor::behaviorIdAtMapPos(const QPoint &metatilePos) const {
+    if (!this->behaviorOverlayItem)
+        return 0;
+    return this->behaviorOverlayItem->behaviorIdAt(QPoint(metatilePos.x() * Metatile::pixelWidth() + Metatile::pixelWidth() / 2,
+                                                          metatilePos.y() * Metatile::pixelHeight() + Metatile::pixelHeight() / 2));
 }
 
 void Editor::clearMapMovementPermissions() {
@@ -1674,7 +2113,7 @@ void Editor::clearMapMovementPermissions() {
 void Editor::displayMapMovementPermissions() {
     clearMapMovementPermissions();
 
-    collision_item = new CollisionPixmapItem(this->layout, ui->spinBox_SelectedCollision, ui->spinBox_SelectedElevation,
+    collision_item = new CollisionPixmapItem(this->layout, ui->spinBox_SelectedElevation,
                                              this->metatile_selector_item, this->settings, &this->collisionOpacity);
     connect(collision_item, &CollisionPixmapItem::mouseEvent, this, &Editor::mouseEvent_map);
     connect(collision_item, &CollisionPixmapItem::hoverEntered, this, &Editor::onMapHoverEntered);
@@ -1753,9 +2192,10 @@ void Editor::displayMovementPermissionSelector() {
         connect(movement_permissions_selector_item, &MovementPermissionsSelector::hoveredMovementPermissionCleared,
                 this, &Editor::onHoveredMovementPermissionCleared);
         connect(movement_permissions_selector_item, &SelectablePixmapItem::selectionChanged, [this](const QPoint &pos, const QSize&) {
-            this->setCollisionTabSpinBoxes(pos.x(), pos.y());
+            this->setElevationTabSpinBox(pos.y());
         });
-        movement_permissions_selector_item->select(projectConfig.defaultCollision, projectConfig.defaultElevation);
+        movement_permissions_selector_item->select(0, projectConfig.defaultElevation);
+        this->setElevationTabSpinBox(projectConfig.defaultElevation);
     }
 
     scene_collision_metatiles->addItem(movement_permissions_selector_item);
@@ -1924,6 +2364,8 @@ void Editor::toggleGrid(bool checked) {
     ui->checkBox_ToggleGrid->setChecked(checked);
 
     this->mapGrid->setVisible(checked);
+    if (this->porymapGrid)
+        this->porymapGrid->setVisible(checked);
 
     if (ui->graphicsView_Map->scene())
         ui->graphicsView_Map->scene()->update();
@@ -1932,6 +2374,40 @@ void Editor::toggleGrid(bool checked) {
 void Editor::clearMapGrid() {
     delete this->mapGrid;
     this->mapGrid = nullptr;
+    delete this->porymapGrid;
+    this->porymapGrid = nullptr;
+}
+
+// Builds the grid lines for one set of grid settings (shared by the Finalmap grid and the Porymap view's fixed 16x16 grid).
+static QGraphicsItemGroup *buildGridGroup(const GridSettings &settings, int pixelMapWidth, int pixelMapHeight) {
+    auto *group = new QGraphicsItemGroup();
+
+    // The grid can be moved with a user-specified x/y offset. The grid's dash patterns will only wrap in full pattern increments,
+    // so we draw an additional row/column outside the map that can be revealed as the offset changes.
+    const int offsetX = (settings.offsetX % settings.width) - settings.width;
+    const int offsetY = (settings.offsetY % settings.height) - settings.height;
+
+    QPen pen;
+    pen.setColor(settings.color);
+
+    // Create vertical lines
+    pen.setDashPattern(settings.getVerticalDashPattern());
+    for (int i = offsetX; i <= pixelMapWidth; i += settings.width) {
+        auto line = new QGraphicsLineItem(i, offsetY, i, pixelMapHeight);
+        line->setPen(pen);
+        group->addToGroup(line);
+    }
+
+    // Create horizontal lines
+    pen.setDashPattern(settings.getHorizontalDashPattern());
+    for (int i = offsetY; i <= pixelMapHeight; i += settings.height) {
+        auto line = new QGraphicsLineItem(offsetX, i, pixelMapWidth, i);
+        line->setPen(pen);
+        group->addToGroup(line);
+    }
+
+    group->setVisible(porymapConfig.showGrid);
+    return group;
 }
 
 void Editor::displayMapGrid() {
@@ -1939,36 +2415,16 @@ void Editor::displayMapGrid() {
 
     // Note: The grid lines are not added to the scene. They need to be drawn on top of the overlay
     //       elements of the scripting API, so they're painted manually in MapView::drawForeground.
-    this->mapGrid = new QGraphicsItemGroup();
+    this->mapGrid = buildGridGroup(this->gridSettings, this->layout->pixelWidth(), this->layout->pixelHeight());
 
-    const int pixelMapWidth = this->layout->pixelWidth();
-    const int pixelMapHeight = this->layout->pixelHeight();
-
-    // The grid can be moved with a user-specified x/y offset. The grid's dash patterns will only wrap in full pattern increments,
-    // so we draw an additional row/column outside the map that can be revealed as the offset changes.
-    const int offsetX = (this->gridSettings.offsetX % this->gridSettings.width) - this->gridSettings.width;
-    const int offsetY = (this->gridSettings.offsetY % this->gridSettings.height) - this->gridSettings.height;
-
-    QPen pen;
-    pen.setColor(this->gridSettings.color);
-
-    // Create vertical lines
-    pen.setDashPattern(this->gridSettings.getVerticalDashPattern());
-    for (int i = offsetX; i <= pixelMapWidth; i += this->gridSettings.width) {
-        auto line = new QGraphicsLineItem(i, offsetY, i, pixelMapHeight);
-        line->setPen(pen);
-        this->mapGrid->addToGroup(line);
-    }
-
-    // Create horizontal lines
-    pen.setDashPattern(this->gridSettings.getHorizontalDashPattern());
-    for (int i = offsetY; i <= pixelMapHeight; i += this->gridSettings.height) {
-        auto line = new QGraphicsLineItem(offsetX, i, pixelMapWidth, i);
-        line->setPen(pen);
-        this->mapGrid->addToGroup(line);
-    }
-
-    this->mapGrid->setVisible(porymapConfig.showGrid);
+    // CUSTOM ENGINE: Map Objects sit on the 16x16 metatile grid only, so the Porymap view always shows exactly that grid
+    // (colour and line style from the Grid settings, size and offset fixed).
+    GridSettings porymapSettings = this->gridSettings;
+    porymapSettings.width = Metatile::pixelWidth();
+    porymapSettings.height = Metatile::pixelHeight();
+    porymapSettings.offsetX = 0;
+    porymapSettings.offsetY = 0;
+    this->porymapGrid = buildGridGroup(porymapSettings, this->layout->pixelWidth(), this->layout->pixelHeight());
 }
 
 void Editor::updateMapGrid() {
@@ -2008,7 +2464,10 @@ void Editor::toggleBorderVisibility(bool visible, bool enableScriptCallback)
 void Editor::updateBorderVisibility() {
     // On the connections tab the border is always visible, and the connections can be edited.
     bool editingConnections = (ui->mainTabBar->currentIndex() == MainTab::Connections);
-    bool visible = (editingConnections || ui->checkBox_ToggleBorder->isChecked());
+    // CUSTOM ENGINE: the Porymap view shows the border and the neighbouring maps at the edges too (as they look in the Finalmap), only
+    // so the edges can be seen: they are not editable there. The Border checkbox switches them like in the Finalmap.
+    const bool porymap = isPorymapView();
+    bool visible = editingConnections || ui->checkBox_ToggleBorder->isChecked();
 
     // Update border
     const qreal borderOpacity = editingConnections ? 0.4 : 1;
@@ -2021,13 +2480,33 @@ void Editor::updateBorderVisibility() {
     for (ConnectionPixmapItem* item : connection_items) {
         item->setVisible(visible);
         item->setEditable(editingConnections);
-        item->setEnabled(visible);
+        item->setEnabled(visible && !porymap);
 
         // When connecting a map to itself we don't bother to re-render the map connections in real-time,
         // i.e. if the user paints a new metatile on the map this isn't immediately reflected in the connection.
         // We're rendering them now, so we take the opportunity to do a full re-render for self-connections.
         bool fullRender = (this->map && item->connection && this->map->name() == item->connection->targetMapName());
         item->render(fullRender);
+    }
+
+    updateViewSceneRect();
+}
+
+// The Finalmap keeps a margin around the map (player-view rectangle, border, connections). The Porymap view shows the border and
+// the neighbouring maps too, while the Border checkbox is on; without them its view is limited to the map plus a small margin.
+// Zoom stays and the view keeps its centre.
+void Editor::updateViewSceneRect() {
+    if (!this->layout || !this->scene)
+        return;
+    QGraphicsView *view = ui->graphicsView_Map;
+    const bool tight = isPorymapView() && !ui->checkBox_ToggleBorder->isChecked();
+    QRectF wanted = tight ? QRectF(-8, -8, this->layout->pixelWidth() + 16, this->layout->pixelHeight() + 16) : this->scene->sceneRect();
+    if (isPorymapView() && this->preMapItem)   // (the pencil reacts up to the reach of the pre-map item beyond the map: the view must be able to scroll there)
+        wanted = wanted.united(this->preMapItem->sceneBoundingRect());
+    if (view->sceneRect() != wanted) {
+        const QPointF center = view->mapToScene(view->viewport()->rect().center());
+        view->setSceneRect(wanted);
+        view->centerOn(center);
     }
 }
 
@@ -2401,15 +2880,23 @@ bool Editor::startDetachedProcess(const QString &command, const QString &working
     return process.startDetached(pid);
 }
 
-void Editor::setCollisionTabSpinBoxes(uint16_t collision, uint16_t elevation) {
-    const QSignalBlocker blocker1(ui->spinBox_SelectedCollision);
-    const QSignalBlocker blocker2(ui->spinBox_SelectedElevation);
-    ui->spinBox_SelectedCollision->setValue(collision);
+void Editor::setElevationTabSpinBox(uint16_t elevation) {
+    const QSignalBlocker blocker(ui->spinBox_SelectedElevation);
     ui->spinBox_SelectedElevation->setValue(elevation);
+    ui->label_ElevationName->setText(getElevationName(elevation));
 }
 
 // Custom collision graphics may be provided by the user.
+// CUSTOM ENGINE: with the custom map.bin layout (no collision bits, 8 elevations) the sheet is a 1x8
+// image that lives in the project (graphics/porymap/elevation_sheet.png). It is generated the first
+// time it is needed and never overwritten, so it can be edited by hand.
 void Editor::setCollisionGraphics() {
+    if (Block::getMaxCollision() == 0 && Block::getMaxElevation() == 7
+        && (projectConfig.collisionSheetPath.isEmpty() || projectConfig.collisionSheetPath == ProjectSheets::elevationSheetPath())) {
+        QString path = ProjectSheets::ensureElevationSheet(projectConfig.projectDir());
+        if (!path.isEmpty())
+            projectConfig.collisionSheetPath = path;
+    }
     QString filepath = projectConfig.collisionSheetPath;
 
     QImage imgSheet;

@@ -1312,6 +1312,41 @@ void Project::setNewLayoutBorder(Layout *layout) {
     layout->lastCommitBlocks.borderDimensions = QSize(width, height);
 }
 
+// CUSTOM ENGINE: a transfer (Write to Finalmap / Pull to Porymap) changed this tileset's blocks in memory.
+void Project::markTilesetChangedByTransfer(const Tileset *tileset) {
+    if (tileset && !tileset->name.isEmpty())
+        this->tilesetsChangedByTransfer.insert(tileset->name);
+}
+
+// Writes the tilesets a transfer changed (nothing else in a project save does). Kept even when one of them fails, so the
+// next save tries again.
+bool Project::saveChangedTilesets() {
+    if (this->tilesetsChangedByTransfer.isEmpty())
+        return true;
+    bool success = true;
+    const QStringList names(this->tilesetsChangedByTransfer.constBegin(), this->tilesetsChangedByTransfer.constEnd());
+    QList<Tileset*> written;
+    for (const QString &name : names) {
+        Tileset *tileset = this->tilesetCache.value(name, nullptr);
+        if (!tileset)
+            continue;
+        if (tileset->save())
+            written.append(tileset);
+        else
+            success = false;
+    }
+    // the metatile labels of a tileset live in one shared file, so they are written once for everything that changed
+    if (!written.isEmpty()) {
+        for (Tileset *tileset : written)
+            updateTilesetMetatileLabels(tileset);
+        if (!saveTilesetMetatileLabels(written.first(), written.size() > 1 ? written.at(1) : nullptr))
+            success = false;
+    }
+    if (success)
+        this->tilesetsChangedByTransfer.clear();
+    return success;
+}
+
 bool Project::saveAll() {
     bool success = true;
     for (auto map : this->maps) {
@@ -1473,6 +1508,7 @@ bool Project::saveLayout(Layout *layout) {
 
 bool Project::saveGlobalData() {
     bool success = true;
+    if (!saveChangedTilesets()) success = false;   // CUSTOM ENGINE: what a Write / Pull changed (both save paths come through here)
     if (!saveMapLayouts()) success = false;
     if (!saveMapGroups()) success = false;
     if (!saveRegionMapSections()) success = false;
@@ -1606,6 +1642,9 @@ Tileset *Project::createNewTileset(QString name, bool secondary, bool checkerboa
             }
             metatile->tiles.append(tile);
         }
+        // (a blank metatile has nothing on its top layer: its layer type is COVERED, as the Tileset Editor makes it for every blank one)
+        if (!checkerboardFill && projectConfig.tripleLayerMetatilesEnabled && projectConfig.metatileLayerTypeMask)
+            metatile->setAttribute(Metatile::Attr::LayerType, Metatile::LayerType::Covered);
         tileset->addMetatile(metatile);
     }
 
@@ -2910,6 +2949,8 @@ bool Project::readMetatileBehaviors() {
         this->metatileBehaviorMap.insert(i.key(), value);
         this->metatileBehaviorMapInverse.insert(value, i.key());
     }
+    Tileset::behaviorNames = this->metatileBehaviorMap;            // (porytiles.json stores behaviors by name)
+    Tileset::behaviorNamesInverse = this->metatileBehaviorMapInverse;
 
     return true;
 }
@@ -3558,7 +3599,7 @@ void Project::applyParsedLimits() {
 }
 
 bool Project::hasUnsavedChanges() {
-    if (this->hasUnsavedDataChanges)
+    if (this->hasUnsavedDataChanges || !this->tilesetsChangedByTransfer.isEmpty())
         return true;
 
     // Check layouts for unsaved changes

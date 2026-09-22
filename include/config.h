@@ -107,19 +107,19 @@ public:
     int diveMapOpacity;
     int emergeMapOpacity;
     int collisionOpacity;
+    int behaviorOverlayOpacity;         // CUSTOM ENGINE: opacity (0-100) of the Behaviors tab's numbers on the Porymap view's map
+    int tilesetEditorBehaviorOpacity;   // CUSTOM ENGINE: opacity (0-100) of the behavior numbers on the Tileset Editor's sheets (both pages, both kinds)
     int collisionZoom;
     int metatilesZoom;
     int tilesetEditorMetatilesZoom;
     int tilesetEditorTilesZoom;
-    Qt::Orientation tilesetEditorLayerOrientation;
+    int prefabGalleryMainSize;   // Map Object gallery cells in the main window (thumbnail edge in px)
     bool showPlayerView;
     bool showCursorTile;
     bool showBorder;
     bool showGrid;
     bool showTilesetEditorMetatileGrid;
-    bool showTilesetEditorLayerGrid;
     bool showTilesetEditorDivider;
-    bool showTilesetEditorRawAttributes;
     bool showPaletteEditorUnusedColors;
     bool monitorFiles;
     bool tilesetCheckerboardFill;
@@ -313,7 +313,6 @@ public:
         this->defaultMapSize = QSize(20,20);
         this->defaultPrimaryTileset = "gTileset_General";
         this->prefabFilepath = QString();
-        this->prefabImportPrompted = false;
         this->tilesetsHaveCallback = true;
         this->tilesetsHaveIsCompressed = true;
         this->transparencyColor = QColor(Qt::black);
@@ -389,7 +388,6 @@ public:
     QString defaultPrimaryTileset;
     QString defaultSecondaryTileset;
     QString prefabFilepath;
-    bool prefabImportPrompted;
     bool tilesetsHaveCallback;
     bool tilesetsHaveIsCompressed;
     QColor transparencyColor;

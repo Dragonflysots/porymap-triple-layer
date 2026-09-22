@@ -162,6 +162,7 @@ public:
     void magicFillCollisionElevation(int x, int y, uint16_t collision, uint16_t elevation);
 
     QPixmap render(bool ignoreCache = false, Layout *fromLayout = nullptr, const QRect &bounds = QRect(0, 0, -1, -1));
+    QPixmap renderView(int hiddenLayers);   // CUSTOM ENGINE: the Finalmap view with some metatile layers switched off (uncached)
     QPixmap renderCollision(bool ignoreCache);
     QPixmap renderBorder(bool ignoreCache = false);
 

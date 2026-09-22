@@ -6,11 +6,18 @@
 #include "tile.h"
 #include <QImage>
 #include <QHash>
+#include <QMap>
 
 struct MetatileLabelPair {
     QString owned;
     QString shared;
 };
+
+// CUSTOM ENGINE: the two kinds of blocks a tileset holds. Metatile = the generated 12-tile / 3-layer block the ROM uses. Porytile = the
+// single-layer block of 2x2 tiles the design view is painted with (a template that can sit on any of the three layers of a field; a
+// default behavior and an optional base label go with it). Porytiles live in porytiles.json next to metatiles.bin, are never read by
+// make, and use the SAME id space as metatiles (primary ids from 0, secondary ids from the number of primary metatiles).
+enum class BlockKind { Metatile, Porytile };
 
 class Tileset
 {
@@ -29,10 +36,12 @@ public:
     QString metatiles_path;
     QString metatile_attrs_label;
     QString metatile_attrs_path;
+    QString porytiles_path;   // CUSTOM ENGINE: porytiles.json (derived from metatiles_path)
     QString tilesImagePath;
     QStringList palettePaths;
 
     QHash<int, QString> metatileLabels;
+    QHash<int, QString> porytileLabels;   // CUSTOM ENGINE: the base labels of the porytiles (by id)
     QList<QList<QRgb>> palettes;
     QList<QList<QRgb>> palettePreviews;
 
@@ -55,6 +64,37 @@ public:
     static QList<QList<QRgb>> getBlockPalettes(const Tileset*, const Tileset*, bool useTruePalettes = false);
     static QList<QRgb> getPalette(int, const Tileset*, const Tileset*, bool useTruePalettes = false);
     static bool metatileIsValid(uint16_t metatileId, const Tileset*, const Tileset*);
+
+    // ---- CUSTOM ENGINE: porytiles, and the kind-generic access that the Tileset Editor's sheets use for either kind ----------------
+    static constexpr int kDefaultNumPorytiles = 64;
+    static constexpr int tilesPerPorytile() { return Metatile::tilesPerLayer(); }
+    static int tilesPerBlock(BlockKind kind);
+    static int layersPerBlock(BlockKind kind) { return kind == BlockKind::Porytile ? 1 : 3; }
+    static Metatile* getPorytile(int porytileId, Tileset*, Tileset*);
+    static const Metatile* getPorytile(int porytileId, const Tileset*, const Tileset*);
+    static Metatile* getBlock(BlockKind kind, int id, Tileset *primary, Tileset *secondary);
+    static const Metatile* getBlock(BlockKind kind, int id, const Tileset *primary, const Tileset *secondary);
+    static bool blockIsValid(BlockKind kind, uint16_t id, const Tileset *primary, const Tileset *secondary);
+    static QString getOwnedBlockLabel(BlockKind kind, int id, Tileset *primary, Tileset *secondary);
+    static bool setBlockLabel(BlockKind kind, int id, const QString &label, Tileset *primary, Tileset *secondary);
+    QHash<int, QString> &blockLabels(BlockKind kind) { return kind == BlockKind::Porytile ? this->porytileLabels : this->metatileLabels; }
+    const QHash<int, QString> &blockLabels(BlockKind kind) const { return kind == BlockKind::Porytile ? this->porytileLabels : this->metatileLabels; }
+    const QList<Metatile*> &blocks(BlockKind kind) const { return kind == BlockKind::Porytile ? m_porytiles : m_metatiles; }
+    int numBlocks(BlockKind kind) const { return blocks(kind).length(); }
+    bool containsBlockId(BlockKind kind, uint16_t id) const { return id >= firstMetatileId() && static_cast<int>(id) < firstMetatileId() + numBlocks(kind); }
+    void resizeBlocks(BlockKind kind, int count) { if (kind == BlockKind::Porytile) resizePorytiles(count); else resizeMetatiles(count); }
+    const QList<Metatile*> &porytiles() const { return m_porytiles; }
+    int numPorytiles() const { return m_porytiles.length(); }
+    void resizePorytiles(int count);
+    void clearPorytiles();
+    bool loadPorytiles();   // never fails the tileset: a missing file means kDefaultNumPorytiles blank porytiles, a corrupt one is set aside (see porytilesLoadError)
+    bool enforceEmptyEntryZero();   // CUSTOM ENGINE: entry 0 of the primary tileset (metatile 0 + porytile 0) is the always-empty erase entry
+    bool savePorytiles();
+    QString porytilesLoadError;   // what was wrong with porytiles.json when it was loaded (empty: nothing); the file was renamed to *.corrupt-<time> then
+    static QString porytilesPathFor(const QString &metatilesPath);
+    // The project's behavior names (MB_...), for porytiles.json (the project fills them in when it reads the behaviors).
+    static QMap<QString, uint32_t> behaviorNames;
+    static QMap<uint32_t, QString> behaviorNamesInverse;
     static QHash<int, QString> getHeaderMemberMap(bool usingAsm);
     static QString getExpectedDir(QString tilesetName, bool isSecondary);
     QString getExpectedDir();
@@ -109,6 +149,7 @@ public:
 
 private:
     QList<Metatile*> m_metatiles;
+    QList<Metatile*> m_porytiles;
 
     QList<QImage> m_tiles;
     QImage m_tilesImage;

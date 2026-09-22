@@ -1,7 +1,6 @@
 #include "projectsettingseditor.h"
 #include "config.h"
 #include "noscrollcombobox.h"
-#include "prefab.h"
 #include "filedialog.h"
 #include "newdefinedialog.h"
 #include "utility.h"
@@ -42,7 +41,6 @@ void ProjectSettingsEditor::connectSignals() {
     connect(ui->button_HelpFiles, &QAbstractButton::clicked, this, &ProjectSettingsEditor::openFilesHelp);
     connect(ui->button_HelpIdentifiers, &QAbstractButton::clicked, this, &ProjectSettingsEditor::openIdentifiersHelp);
     connect(ui->buttonBox, &QDialogButtonBox::clicked, this, &ProjectSettingsEditor::dialogButtonClicked);
-    connect(ui->button_ImportDefaultPrefabs, &QAbstractButton::clicked, this, &ProjectSettingsEditor::importDefaultPrefabsClicked);
     connect(ui->comboBox_BaseGameVersion, &QComboBox::currentTextChanged, this, &ProjectSettingsEditor::promptRestoreDefaults);
     connect(ui->comboBox_AttributesSize, &QComboBox::currentTextChanged, this, &ProjectSettingsEditor::updateAttributeLimits);
     connect(ui->comboBox_IconSpecies, &QComboBox::currentTextChanged, this, &ProjectSettingsEditor::updatePokemonIconPath);
@@ -659,7 +657,7 @@ void ProjectSettingsEditor::save() {
 
 // Pick a file to use as the new prefabs file path
 void ProjectSettingsEditor::choosePrefabsFile() {
-    this->chooseFile(ui->lineEdit_PrefabsPath, "Choose Prefabs File", "JSON Files (*.json)");
+    this->chooseFile(ui->lineEdit_PrefabsPath, "Choose Map Objects File", "JSON Files (*.json)");
 }
 
 void ProjectSettingsEditor::chooseImageFile(QLineEdit * filepathEdit) {
@@ -770,15 +768,6 @@ QMap<QString,QString> ProjectSettingsEditor::getGlobalConstants() {
 // Display relative path if this file is in the project folder
 QString ProjectSettingsEditor::stripProjectDir(QString s) {
     return Util::stripPrefix(s, this->baseDir);
-}
-
-void ProjectSettingsEditor::importDefaultPrefabsClicked(bool) {
-    // If the prompt is accepted the prefabs file will be created and its filepath will be saved in the config.
-    BaseGameVersion version = projectConfig.stringToBaseGameVersion(ui->comboBox_BaseGameVersion->currentText());
-    if (prefab.tryImportDefaultPrefabs(this, version, ui->lineEdit_PrefabsPath->text())) {
-        ui->lineEdit_PrefabsPath->setText(projectConfig.prefabFilepath); // Refresh with new filepath
-        this->hasUnsavedChanges = true;
-    }
 }
 
 int ProjectSettingsEditor::prompt(const QString &text, QMessageBox::StandardButton defaultButton) {

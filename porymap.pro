@@ -60,6 +60,10 @@ SOURCES += src/core/advancemapparser.cpp \
     src/core/paletteutil.cpp \
     src/core/parseutil.cpp \
     src/core/tile.cpp \
+    src/core/tilebrush.cpp \
+    src/core/premap.cpp \
+    src/core/maptransfer.cpp \
+    src/core/projectsheets.cpp \
     src/core/tileset.cpp \
     src/core/utility.cpp \
     src/core/validator.cpp \
@@ -92,7 +96,6 @@ SOURCES += src/core/advancemapparser.cpp \
     src/ui/gridsettings.cpp \
     src/ui/newmapconnectiondialog.cpp \
     src/ui/overlay.cpp \
-    src/ui/prefab.cpp \
     src/ui/projectsettingseditor.cpp \
     src/ui/regionmaplayoutpixmapitem.cpp \
     src/ui/regionmapentriespixmapitem.cpp \
@@ -107,11 +110,12 @@ SOURCES += src/core/advancemapparser.cpp \
     src/ui/graphicsview.cpp \
     src/ui/imageproviders.cpp \
     src/ui/layoutpixmapitem.cpp \
-    src/ui/prefabcreationdialog.cpp \
+    src/ui/premappixmapitem.cpp \
+    src/ui/premapcommands.cpp \
+    src/ui/behavioroverlayitem.cpp \
     src/ui/regionmappixmapitem.cpp \
     src/ui/citymappixmapitem.cpp \
     src/ui/mapheaderform.cpp \
-    src/ui/metatilelayersitem.cpp \
     src/ui/metatileselector.cpp \
     src/ui/movablerect.cpp \
     src/ui/movementpermissionsselector.cpp \
@@ -132,6 +136,8 @@ SOURCES += src/core/advancemapparser.cpp \
     src/ui/tileseteditor.cpp \
     src/ui/tileseteditormetatileselector.cpp \
     src/ui/tileseteditortileselector.cpp \
+    src/ui/sheetbehaviorpanel.cpp \
+    src/ui/sheetcontrolslegend.cpp \
     src/ui/tilemaptileselector.cpp \
     src/ui/regionmapeditor.cpp \
     src/ui/newmapdialog.cpp \
@@ -143,7 +149,6 @@ SOURCES += src/core/advancemapparser.cpp \
     src/ui/shortcut.cpp \
     src/ui/shortcutseditor.cpp \
     src/ui/multikeyedit.cpp \
-    src/ui/prefabframe.cpp \
     src/ui/preferenceeditor.cpp \
     src/ui/regionmappropertiesdialog.cpp \
     src/ui/colorpicker.cpp \
@@ -178,6 +183,10 @@ HEADERS  += include/core/advancemapparser.h \
     include/core/paletteutil.h \
     include/core/parseutil.h \
     include/core/tile.h \
+    include/core/tilebrush.h \
+    include/core/premap.h \
+    include/core/maptransfer.h \
+    include/core/projectsheets.h \
     include/core/tileset.h \
     include/core/utility.h \
     include/core/validator.h \
@@ -209,7 +218,6 @@ HEADERS  += include/core/advancemapparser.h \
     include/ui/gridsettings.h \
     include/ui/mapheaderform.h \
     include/ui/newmapconnectiondialog.h \
-    include/ui/prefabframe.h \
     include/ui/projectsettingseditor.h \
     include/ui/regionmaplayoutpixmapitem.h \
     include/ui/regionmapentriespixmapitem.h \
@@ -224,12 +232,14 @@ HEADERS  += include/core/advancemapparser.h \
     include/ui/graphicsview.h \
     include/ui/imageproviders.h \
     include/ui/layoutpixmapitem.h \
+    include/ui/premappixmapitem.h \
+    include/ui/premapcommands.h \
+    include/ui/behavioroverlayitem.h \
+    include/core/behaviorcolor.h \
     include/ui/mapview.h \
-    include/ui/prefabcreationdialog.h \
     include/ui/regionmappixmapitem.h \
     include/ui/citymappixmapitem.h \
     include/ui/colorinputwidget.h \
-    include/ui/metatilelayersitem.h \
     include/ui/metatileselector.h \
     include/ui/movablerect.h \
     include/ui/movementpermissionsselector.h \
@@ -251,7 +261,10 @@ HEADERS  += include/core/advancemapparser.h \
     include/ui/selectablepixmapitem.h \
     include/ui/tileseteditor.h \
     include/ui/tileseteditormetatileselector.h \
+    include/ui/tilesetdivideritem.h \
     include/ui/tileseteditortileselector.h \
+    include/ui/sheetbehaviorpanel.h \
+    include/ui/sheetcontrolslegend.h \
     include/ui/tilemaptileselector.h \
     include/ui/regionmapeditor.h \
     include/ui/newmapdialog.h \
@@ -264,7 +277,6 @@ HEADERS  += include/core/advancemapparser.h \
     include/ui/shortcut.h \
     include/ui/shortcutseditor.h \
     include/ui/multikeyedit.h \
-    include/ui/prefab.h \
     include/ui/preferenceeditor.h \
     include/ui/regionmappropertiesdialog.h \
     include/ui/colorpicker.h \
@@ -298,8 +310,6 @@ FORMS    += forms/mainwindow.ui \
     forms/newlocationdialog.ui \
     forms/newmapconnectiondialog.ui \
     forms/newmapgroupdialog.ui \
-    forms/prefabcreationdialog.ui \
-    forms/prefabframe.ui \
     forms/tileseteditor.ui \
     forms/palettecolorsearch.ui \
     forms/paletteeditor.ui \

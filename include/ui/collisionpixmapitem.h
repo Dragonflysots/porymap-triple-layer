@@ -12,14 +12,14 @@
 class CollisionPixmapItem : public LayoutPixmapItem {
     Q_OBJECT
 public:
-    CollisionPixmapItem(Layout *layout, QSpinBox * selectedCollision, QSpinBox * selectedElevation, MetatileSelector *metatileSelector, Settings *settings, qreal *opacity)
+    // CUSTOM ENGINE: this is now the ELEVATION layer -- map.bin has no collision bits any more, so
+    // painting only ever sets the block's elevation (0-7). The class keeps its old name.
+    CollisionPixmapItem(Layout *layout, QSpinBox * selectedElevation, MetatileSelector *metatileSelector, Settings *settings, qreal *opacity)
         : LayoutPixmapItem(layout, metatileSelector, settings){
-        this->selectedCollision = selectedCollision;
         this->selectedElevation = selectedElevation;
         this->opacity = opacity;
         layout->setCollisionItem(this);
     }
-    QSpinBox * selectedCollision;
     QSpinBox * selectedElevation;
     qreal *opacity;
     void updateMovementPermissionSelection(QGraphicsSceneMouseEvent *event);

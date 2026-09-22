@@ -87,7 +87,7 @@ public:
         const Blockdata &oldCollision, const Blockdata &newCollision,
         unsigned actionId, QUndoCommand *parent = nullptr)
     : PaintMetatile(layout, oldCollision, newCollision, actionId, parent) {
-        setText("Paint Collision");
+        setText("Paint Elevation");
     }
 
     int id() const override { return CommandId::ID_PaintCollision; }
@@ -143,7 +143,7 @@ public:
         const Blockdata &oldCollision, const Blockdata &newCollision,
         QUndoCommand *parent = nullptr)
       : PaintCollision(layout, oldCollision, newCollision, -1, parent) {
-        setText("Flood Fill Collision");
+        setText("Bucket Fill Elevation");
     }
 
     bool mergeWith(const QUndoCommand *) override { return false; }
@@ -175,7 +175,7 @@ public:
         const Blockdata &oldCollision, const Blockdata &newCollision,
         QUndoCommand *parent = nullptr)
     : PaintCollision(layout, oldCollision, newCollision, -1, parent) {
-        setText("Magic Fill Collision");
+        setText("Magic Fill Elevation");
     }
 
     bool mergeWith(const QUndoCommand *) override { return false; }

@@ -200,7 +200,7 @@ QImage getMetatileSheetImage(const Tileset *primaryTileset,
     int numMetatilesTall = Util::roundUpToMultiple(numMetatilesToDraw, numMetatilesWide) / numMetatilesWide;
 
     QImage image(numMetatilesWide * metatileSize.width(), numMetatilesTall * metatileSize.height(), QImage::Format_RGBA8888);
-    image.fill(getInvalidImageColor());
+    image.fill(Qt::transparent);   // CUSTOM ENGINE: the cells behind the last block of an incomplete row are no metatiles at all (a tileset grows one block at a time), not "invalid" ones
 
     QPainter painter(&image);
     for (int i = 0; i < numMetatilesToDraw; i++) {
@@ -249,13 +249,50 @@ QImage getMetatileSheetImage(const Tileset *primaryTileset,
     QImage secondaryImage = createSheetImage(Project::getNumMetatilesPrimary(), secondaryTileset);
 
     QImage image(qMax(primaryImage.width(), secondaryImage.width()), primaryImage.height() + secondaryImage.height(), QImage::Format_RGBA8888);
-    image.fill(getInvalidImageColor());
+    image.fill(Qt::transparent);   // CUSTOM ENGINE: (what is left over is padding, not an invalid block)
 
     QPainter painter(&image);
     painter.drawImage(0, 0, primaryImage);
     painter.drawImage(0, primaryImage.height(), secondaryImage);
     painter.end();
 
+    return image;
+}
+
+QImage getBlockImage(BlockKind kind, uint16_t id, const Tileset *primaryTileset, const Tileset *secondaryTileset, const QList<int> &layerOrder, const QList<float> &layerOpacity, bool useTruePalettes) {
+    if (kind == BlockKind::Porytile)
+        return getMetatileImage(Tileset::getPorytile(id, primaryTileset, secondaryTileset), primaryTileset, secondaryTileset, {0}, {}, useTruePalettes);
+    return getMetatileImage(id, primaryTileset, secondaryTileset, layerOrder, layerOpacity, useTruePalettes);
+}
+
+QImage getBlockSheetImage(BlockKind kind, const Tileset *primaryTileset, const Tileset *secondaryTileset, int numBlocksWide,
+                          const QList<int> &layerOrder, const QList<float> &layerOpacity, const QSize &blockSize, bool useTruePalettes) {
+    if (kind == BlockKind::Metatile)
+        return getMetatileSheetImage(primaryTileset, secondaryTileset, numBlocksWide, layerOrder, layerOpacity, blockSize, useTruePalettes);
+    if (numBlocksWide <= 0)
+        return QImage();
+    auto sheetOf = [&](const Tileset *tileset, uint16_t start) {
+        const int count = tileset ? tileset->numPorytiles() : 0;
+        if (count == 0)
+            return QImage();
+        const int rows = Util::roundUpToMultiple(count, numBlocksWide) / numBlocksWide;
+        QImage image(numBlocksWide * blockSize.width(), rows * blockSize.height(), QImage::Format_RGBA8888);
+        image.fill(Qt::transparent);   // (the cells behind the last porytile of an incomplete row: not blocks, so not the "invalid" colour either)
+        QPainter painter(&image);
+        for (int i = 0; i < count; i++)
+            painter.drawImage((i % numBlocksWide) * blockSize.width(), (i / numBlocksWide) * blockSize.height(),
+                              getBlockImage(kind, start + i, primaryTileset, secondaryTileset, layerOrder, layerOpacity, useTruePalettes).scaled(blockSize));
+        painter.end();
+        return image;
+    };
+    const QImage primaryImage = sheetOf(primaryTileset, 0);
+    const QImage secondaryImage = sheetOf(secondaryTileset, Project::getNumMetatilesPrimary());
+    QImage image(qMax(primaryImage.width(), secondaryImage.width()), primaryImage.height() + secondaryImage.height(), QImage::Format_RGBA8888);
+    image.fill(Qt::transparent);   // CUSTOM ENGINE: (what is left over is padding, not an invalid block)
+    QPainter painter(&image);
+    painter.drawImage(0, 0, primaryImage);
+    painter.drawImage(0, primaryImage.height(), secondaryImage);
+    painter.end();
     return image;
 }
 
@@ -269,4 +306,28 @@ QImage getMetatileSheetImage(const Layout *layout, int numMetatilesWide, bool us
                                  layout->metatileLayerOpacity(),
                                  Metatile::pixelSize(),
                                  useTruePalettes);
+}
+
+QImage getBrushImage(const TileBrush &brush, const Tileset *primaryTileset, const Tileset *secondaryTileset, int pixelsPerTile) {
+    if (brush.isNull())
+        return QImage();
+    QImage image(brush.cols() * pixelsPerTile, brush.rows() * pixelsPerTile, QImage::Format_RGBA8888);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    for (int row = 0; row < brush.rows(); row++) {
+        for (int col = 0; col < brush.cols(); col++) {
+            const Tile tile = brush.at(col, row);
+            QImage tileImage = getPalettedTileImage(tile.tileId, primaryTileset, secondaryTileset, tile.palette, true);
+            if (tileImage.colorCount()) {   // colour 0 is transparent, as on the map
+                QColor color(tileImage.color(0));
+                color.setAlpha(0);
+                tileImage.setColor(0, color.rgba());
+            }
+            tileImage = tileImage.scaled(pixelsPerTile, pixelsPerTile);
+            tile.flip(&tileImage);
+            painter.drawImage(col * pixelsPerTile, row * pixelsPerTile, tileImage);
+        }
+    }
+    painter.end();
+    return image;
 }

@@ -690,7 +690,7 @@ void LayoutPixmapItem::select(QGraphicsSceneMouseEvent *event) {
 void LayoutPixmapItem::draw(bool ignoreCache) {
     if (this->layout) {
         layout->setLayoutItem(this);
-        setPixmap(this->layout->render(ignoreCache));
+        setPixmap(this->hiddenLayers ? this->layout->renderView(this->hiddenLayers) : this->layout->render(ignoreCache));
     }
 }
 

@@ -76,7 +76,6 @@ private:
 
 private slots:
     void dialogButtonClicked(QAbstractButton *button);
-    void importDefaultPrefabsClicked(bool);
     void updateAttributeLimits(const QString &attrSize);
     void updatePokemonIconPath(const QString &species);
     void markEdited();

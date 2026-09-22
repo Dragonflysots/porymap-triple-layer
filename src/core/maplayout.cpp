@@ -413,6 +413,31 @@ QPixmap Layout::render(bool ignoreCache, Layout *fromLayout, const QRect &bounds
     return this->pixmap;
 }
 
+// CUSTOM ENGINE: the map as the Finalmap view shows it while some of its layers are switched off (bit n of `hiddenLayers` = layer n hidden). A view
+// only: nothing is cached (the picture in `image` / `pixmap` stays what render() made of it, which the exports and the tab icon use), so the
+// caller draws this again after every change.
+QPixmap Layout::renderView(int hiddenLayers) {
+    QImage view(pixelWidth(), pixelHeight(), QImage::Format_RGBA8888);
+    view.fill(Qt::transparent);
+    if (this->blockdata.isEmpty() || this->width == 0 || this->height == 0)
+        return QPixmap::fromImage(view);
+    QList<int> order;
+    for (int layer : metatileLayerOrder())
+        if (!(hiddenLayers & (1 << layer)))
+            order.append(layer);
+    QHash<uint16_t, QImage> imageCache;
+    QPainter painter(&view);
+    for (int i = 0; i < this->blockdata.length(); i++) {
+        const uint16_t metatileId = this->blockdata.at(i).metatileId();
+        auto found = imageCache.constFind(metatileId);
+        if (found == imageCache.constEnd())
+            found = imageCache.insert(metatileId, getMetatileImage(metatileId, this->tileset_primary, this->tileset_secondary, order, metatileLayerOpacity()));
+        painter.drawImage((i % this->width) * Metatile::pixelWidth(), (i / this->width) * Metatile::pixelHeight(), found.value());
+    }
+    painter.end();
+    return QPixmap::fromImage(view);
+}
+
 QPixmap Layout::renderCollision(bool ignoreCache) {
     bool changed_any = false;
     if (collision_image.isNull() || collision_image.width() != pixelWidth() || collision_image.height() != pixelHeight()) {

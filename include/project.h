@@ -181,6 +181,13 @@ public:
     bool saveTextFile(const QString &path, const QString &text);
     bool saveRegionMapSections();
     bool saveTilesets(Tileset*, Tileset*);
+    // CUSTOM ENGINE: Write to Finalmap / Pull to Porymap change tileset data, which nothing else in a project save writes.
+    // They remember the tilesets here; saveAll() writes them and hasUnsavedChanges() counts them, so the data follows the
+    // normal "unsaved until you save" rule instead of being written behind the user's back.
+    QSet<QString> tilesetsChangedByTransfer;
+    int tilesetTransferGeneration = 0;   // raised by every transfer and every undo/redo of one; the Tileset Editor's copies carry the value they were taken at
+    void markTilesetChangedByTransfer(const Tileset *tileset);
+    bool saveChangedTilesets();
     bool saveTilesetMetatileLabels(Tileset*, Tileset*);
 
     void appendTilesetLabel(const QString &label, const QString &isSecondaryStr);

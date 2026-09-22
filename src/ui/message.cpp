@@ -1,4 +1,5 @@
 #include "message.h"
+#include <QAbstractButton>
 #include "log.h"
 
 #include <QApplication>
@@ -52,13 +53,20 @@ QuestionMessage::QuestionMessage(const QString &message, QWidget *parent) :
     setDefaultButton(QMessageBox::No);
 }
 
-SaveChangesMessage::SaveChangesMessage(const QString &name, bool allowCancel, QWidget *parent) :
+std::function<int(const QString &, bool, const QString &)> SaveChangesMessage::responder;
+
+SaveChangesMessage::SaveChangesMessage(const QString &name, bool allowCancel, QWidget *parent, const QString &details) :
     QuestionMessage(QString("%1 has been modified, save changes?").arg(name), parent)
 {
     if (allowCancel) {
         addButton(QMessageBox::Cancel);
     }
     setDefaultButton(QMessageBox::Yes);
+    setEscapeButton(allowCancel ? QMessageBox::Cancel : QMessageBox::No);
+    button(QMessageBox::Yes)->setText(QStringLiteral("Save"));
+    button(QMessageBox::No)->setText(QStringLiteral("Discard"));
+    if (!details.isEmpty())
+        setInformativeText(details);
 }
 
 RecentErrorMessage::RecentErrorMessage(const QString &message, QWidget *parent) :
@@ -93,8 +101,10 @@ int QuestionMessage::show(const QString &message, QWidget *parent) {
     return msgBox.exec();
 }
 
-int SaveChangesMessage::show(const QString &name, bool allowCancel, QWidget *parent) {
-    SaveChangesMessage msgBox(name, allowCancel, parent);
+int SaveChangesMessage::show(const QString &name, bool allowCancel, QWidget *parent, const QString &details) {
+    if (responder)
+        return responder(name, allowCancel, details);
+    SaveChangesMessage msgBox(name, allowCancel, parent, details);
     return msgBox.exec();
 }
 

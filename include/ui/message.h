@@ -14,6 +14,7 @@
 */
 
 #include <QMessageBox>
+#include <functional>
 
 class Message : public QMessageBox {
 public:
@@ -52,12 +53,17 @@ public:
 };
 
 // A question message with the text "<name> has been modified, save changes?".
-// Has a 'Yes', 'No', and optional 'Cancel' button. Defaults to 'Yes'.
+// Has a 'Save' (Yes), 'Discard' (No), and optional 'Cancel' button. Defaults to 'Save'. The return values stay
+// QMessageBox::Yes / No / Cancel. Optional details ("2 new, 1 deleted Map Objects") are shown as informative text.
 class SaveChangesMessage : public QuestionMessage {
 public:
-    SaveChangesMessage(const QString &name, bool allowCancel, QWidget *parent);
-    static int show(const QString &name, bool allowCancel, QWidget *parent);
+    SaveChangesMessage(const QString &name, bool allowCancel, QWidget *parent, const QString &details = QString());
+    static int show(const QString &name, bool allowCancel, QWidget *parent, const QString &details = QString());
     static int show(const QString &name, QWidget *parent) { return SaveChangesMessage::show(name, true, parent); }
+
+    // Test hook: when set, show() returns this function's answer (QMessageBox::Yes / No / Cancel) instead of opening a
+    // native dialog that nobody could answer in an automated run.
+    static std::function<int(const QString &name, bool allowCancel, const QString &details)> responder;
 };
 
 // Error message directing users to their log file.

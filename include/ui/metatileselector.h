@@ -3,6 +3,7 @@
 
 #include <QPair>
 #include "selectablepixmapitem.h"
+#include "tilesetdivideritem.h"
 #include "map.h"
 #include "tileset.h"
 #include "maplayout.h"
@@ -39,9 +40,12 @@ struct MetatileSelection
 class MetatileSelector: public SelectablePixmapItem {
     Q_OBJECT
 public:
-    MetatileSelector(int numMetatilesWide, Layout *layout)
+    // CUSTOM ENGINE: kind = which blocks the palette shows (metatiles for the Finalmap, porytiles for the Porymap view); the ids of a selection
+    // are ids of that kind (the same id space).
+    MetatileSelector(int numMetatilesWide, Layout *layout, BlockKind kind = BlockKind::Metatile)
         : SelectablePixmapItem(Metatile::pixelSize()),
-          numMetatilesWide(qMax(numMetatilesWide, 1))
+          numMetatilesWide(qMax(numMetatilesWide, 1)),
+          kind(kind)
     {
         this->externalSelection = false;
         this->prefabSelection = false;
@@ -54,6 +58,9 @@ public:
     QSize getSelectionDimensions() const override;
     void draw() override;
     void refresh();
+    // The red line between the primary and the secondary tileset (the same one the Tileset Editor's sheets have; View > Show Tileset Divider there
+    // switches it): an item on top of the palette, as thick on screen at every zoom.
+    TilesetDividerItem *dividerLine() const { return this->dividerItem; }
 
     bool select(uint16_t metatile);
     void selectFromMap(uint16_t metatileId, uint16_t collision, uint16_t elevation);
@@ -62,6 +69,8 @@ public:
     void setExternalSelection(int, int, const QList<uint16_t>&, const QList<QPair<uint16_t, uint16_t>>&);
     QPoint getMetatileIdCoordsOnWidget(uint16_t metatileId) const;
     void setLayout(Layout *layout);
+    BlockKind blockKind() const { return this->kind; }
+    bool blockIsValid(uint16_t id) const { return Tileset::blockIsValid(this->kind, id, primaryTileset(), secondaryTileset()); }
     bool isInternalSelection() const { return (!this->externalSelection && !this->prefabSelection); }
 
     Tileset *primaryTileset() const { return this->layout->tileset_primary; }
@@ -76,6 +85,7 @@ protected:
     void drawSelection() override;
 private:
     const int numMetatilesWide;
+    const BlockKind kind;
     QPixmap basePixmap;
     bool externalSelection;
     bool prefabSelection;
@@ -85,8 +95,10 @@ private:
     QList<uint16_t> externalSelectedMetatiles;
     MetatileSelection selection;
     QPoint cellPos;
+    TilesetDividerItem *dividerItem = nullptr;   // created on the first draw
 
     void updateBasePixmap();
+    void updateDivider();
     void updateSelectedMetatiles();
     void updateExternalSelectedMetatiles();
     uint16_t posToMetatileId(int x, int y, bool *ok = nullptr) const;

@@ -1,6 +1,7 @@
 #ifndef IMAGEPROVIDERS_H
 #define IMAGEPROVIDERS_H
 
+#include "tilebrush.h"
 #include "block.h"
 #include "tileset.h"
 #include <QImage>
@@ -35,8 +36,15 @@ QImage getMetatileSheetImage(const Tileset *primaryTileset,
                              bool useTruePalettes = false);
 
 
+// CUSTOM ENGINE: the same for either kind of block. A porytile has one layer (order {0}); a metatile follows the given layer order.
+QImage getBlockImage(BlockKind kind, uint16_t id, const Tileset*, const Tileset*, const QList<int> &layerOrder = {0,1,2}, const QList<float> &layerOpacity = {}, bool useTruePalettes = false);
+QImage getBlockSheetImage(BlockKind kind, const Tileset *primaryTileset, const Tileset *secondaryTileset, int numBlocksWide,
+                          const QList<int> &layerOrder, const QList<float> &layerOpacity = {}, const QSize &blockSize = Metatile::pixelSize(), bool useTruePalettes = false);
+
 QImage getTileImage(uint16_t, const Tileset*, const Tileset*);
 QImage getPalettedTileImage(uint16_t, const Tileset*, const Tileset*, int, bool useTruePalettes = false);
+// CUSTOM ENGINE: a TileBrush as a picture, pixelsPerTile per tile (colour 0 transparent, flips applied).
+QImage getBrushImage(const TileBrush &brush, const Tileset *primaryTileset, const Tileset *secondaryTileset, int pixelsPerTile);
 QImage getColoredTileImage(uint16_t tileId, const Tileset *, const Tileset *, const QList<QRgb> &palette);
 QImage getGreyscaleTileImage(uint16_t tileId, const Tileset *, const Tileset *);
 

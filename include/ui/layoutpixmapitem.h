@@ -26,6 +26,8 @@ public:
 
     Layout *layout;
 
+    int hiddenLayers = 0;   // CUSTOM ENGINE: the metatile layers the Finalmap view has switched off (bit n = layer n); a view setting only
+
     MetatileSelector *metatileSelector;
 
     Settings *settings;

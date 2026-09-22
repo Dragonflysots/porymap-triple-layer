@@ -1,9 +1,11 @@
 #include "mainwindow.h"
+#include "premapcommands.h"
+#include "core/maptransfer.h"
+#include <QButtonGroup>
 #include "ui_mainwindow.h"
 #include "project.h"
 #include "log.h"
 #include "editor.h"
-#include "prefabcreationdialog.h"
 #include "eventframes.h"
 #include "bordermetatilespixmapitem.h"
 #include "currentselectedmetatilespixmapitem.h"
@@ -15,7 +17,8 @@
 #include "flowlayout.h"
 #include "shortcut.h"
 #include "advancemapparser.h"
-#include "prefab.h"
+#include "projectsheets.h"
+#include "behaviorcolor.h"
 #include "montabwidget.h"
 #include "imageexport.h"
 #include "maplistmodels.h"
@@ -40,6 +43,7 @@
 #include <QScrollBar>
 #include <QPushButton>
 #include <QDialogButtonBox>
+#include <QPainterPath>
 #include <QScroller>
 #include <math.h>
 #include <QSysInfo>
@@ -311,7 +315,8 @@ void MainWindow::initLogStatusBar() {
 
 void MainWindow::initCustomUI() {
     static const QMap<int, QString> mainTabNames = {
-        {MainTab::Map, "Map"},
+        {MainTab::Porymap, "Porymap"},
+        {MainTab::Map, "Finalmap"},
         {MainTab::Events, "Events"},
         {MainTab::Header, "Header"},
         {MainTab::Connections, "Connections"},
@@ -319,6 +324,7 @@ void MainWindow::initCustomUI() {
     };
 
     static const QMap<int, QIcon> mainTabIcons = {
+        {MainTab::Porymap, QIcon(QStringLiteral(":/icons/pencil.ico"))},
         {MainTab::Map, QIcon(QStringLiteral(":/icons/minimap.ico"))},
         {MainTab::Events, ProjectConfig::getPlayerIcon(BaseGameVersion::pokefirered, 0)}, // Arbitrary default
         {MainTab::Header, QIcon(QStringLiteral(":/icons/application_form_edit.ico"))},
@@ -333,6 +339,9 @@ void MainWindow::initCustomUI() {
         ui->mainTabBar->addTab(mainTabNames.value(i));
         ui->mainTabBar->setTabIcon(i, mainTabIcons.value(i));
     }
+    ui->mainTabBar->setCurrentIndex(MainTab::Map); // starts on the Finalmap, the map as it was before the Porymap tab existed
+    initTopTabBar();
+    updateTransferButtons();
 
     this->unlockableMainTabIcon.load(":/images/unlockable_tab_icon.dat");
 
@@ -345,10 +354,71 @@ void MainWindow::initCustomUI() {
     ui->graphicsView_Map->setResizeAnchor(QGraphicsView::ViewportAnchor::AnchorUnderMouse);
 }
 
+// The visible top row. Maps stands for the Porymap AND the Finalmap (two sub-tabs, the second row); the other four tabs are what they were.
+// It only forwards clicks to the logical tab bar and mirrors its icons / enabled state / tool tips (syncTopTabBar), so nothing else changes.
+void MainWindow::initTopTabBar() {
+    static const char *names[5] = { "Maps", "Events", "Header", "Connections", "Wild Pokemon" };
+    this->topTabBar = new QTabBar;
+    this->topTabBar->setObjectName(QStringLiteral("topTabBar"));
+    this->topTabBar->setDrawBase(false);
+    this->topTabBar->setExpanding(false);
+    for (int i = 0; i < 5; i++)
+        this->topTabBar->addTab(QString::fromLatin1(names[i]));
+    // the second row: only the two map tabs of the logical bar
+    for (int logical = MainTab::Events; logical <= MainTab::WildPokemon; logical++)
+        ui->mainTabBar->setTabVisible(logical, false);
+    auto *row = new QHBoxLayout;
+    row->setContentsMargins(0, 0, 0, 0);
+    row->addWidget(this->topTabBar);
+    row->addStretch(1);
+    ui->verticalLayout_13->insertLayout(0, row);
+    ui->horizontalSpacer_20->changeSize(0, 0, QSizePolicy::Expanding, QSizePolicy::Fixed);   // (no blank strip under the top row while the sub-tabs are hidden)
+    connect(this->topTabBar, &QTabBar::tabBarClicked, this, [this](int top) {
+        on_mainTabBar_tabBarClicked(top == 0 ? this->lastMapsTab : top + 1);
+    });
+    connect(ui->mainTabBar, &QTabBar::currentChanged, this, [this](int) { syncTopTabBar(); });
+    syncTopTabBar();
+}
+
+void MainWindow::syncTopTabBar() {
+    if (!this->topTabBar)
+        return;
+    const int current = ui->mainTabBar->currentIndex();
+    if (current == MainTab::Porymap || current == MainTab::Map)
+        this->lastMapsTab = current;
+    const QSignalBlocker blocker(this->topTabBar);
+    for (int top = 0; top < this->topTabBar->count(); top++) {
+        const int logical = top == 0 ? MainTab::Map : top + 1;
+        this->topTabBar->setTabEnabled(top, ui->mainTabBar->isTabEnabled(logical));
+        this->topTabBar->setTabToolTip(top, ui->mainTabBar->tabToolTip(logical));
+        this->topTabBar->setTabIcon(top, ui->mainTabBar->tabIcon(logical));
+    }
+    this->topTabBar->setCurrentIndex(current <= MainTab::Map ? 0 : current - 1);
+    ui->mainTabBar->setVisible(current <= MainTab::Map);   // (the sub-tabs only while Maps is showing)
+}
+
 void MainWindow::overrideMainTabIcons(const QIcon& icon) {
-    for (int i = 1; i < ui->mainTabBar->count(); i++) {
+    for (int i = MainTab::Events; i < ui->mainTabBar->count(); i++) { // Porymap and the Finalmap keep their own icons
         ui->mainTabBar->setTabIcon(i, icon);
     }
+    syncTopTabBar();
+}
+
+// A small eraser drawn by code (the resources have none): a tilted body, one end pink.
+static QIcon eraserIcon() {
+    QPixmap pixmap(48, 48);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.translate(24, 24);
+    painter.rotate(-35);
+    painter.setPen(QPen(QColor(60, 60, 75), 2.5));
+    painter.setBrush(QColor(245, 245, 250));
+    painter.drawRoundedRect(QRectF(-18, -9, 36, 18), 4, 4);
+    painter.setBrush(QColor(235, 105, 135));
+    painter.drawRoundedRect(QRectF(-18, -9, 17, 18), 4, 4);
+    painter.end();
+    return QIcon(pixmap);
 }
 
 void MainWindow::initExtraSignals() {
@@ -397,6 +467,127 @@ void MainWindow::initExtraSignals() {
     connect(ui->actionDuplicate_Current_Layout, &QAction::triggered, [this] {
         if (this->editor->layout) openDuplicateLayoutDialog(this->editor->layout->id);
     });
+
+    // CUSTOM ENGINE: layer selector for the pre-map. One compact group per layer -- an eye (show/hide
+    // in the editor only, open by default), the layer's name (click to make it the layer newly placed
+    // prefabs go onto; Middle by default, matching Editor::preMapLayer) and an Alpha Channel flag
+    // (stored in the PreMap; the real GBA BLDALPHA implementation is handled separately later).
+    static const char *layerNames[3] = { "Bottom", "Middle", "Top" };
+    auto *layerGroup = new QButtonGroup(this);
+    layerGroup->setExclusive(true);
+    for (int i = 0; i < 3; i++) {
+        auto *eye = new QToolButton;
+        eye->setObjectName(QString("toolButton_PreMapLayerEye_%1").arg(layerNames[i]));
+        eye->setAutoRaise(true);
+        eye->setCheckable(true);
+        eye->setChecked(true);
+        eye->setIcon(QIcon(":/icons/folder_eye_open.ico"));
+        eye->setToolTip("Show/hide this layer in the editor. Editor-only: does not affect the saved Porymap data or the Finalmap.");
+
+        auto *select = new QToolButton;
+        select->setObjectName(QString("toolButton_PreMapLayer_%1").arg(layerNames[i]));
+        select->setText(layerNames[i]);
+        select->setCheckable(true);
+        select->setChecked(i == 1);
+        select->setToolTip("The layer the tools paint on. Purely an editing-time choice -- no effect on porytiles that are already placed, or on the Finalmap until Write to Finalmap.");
+        layerGroup->addButton(select, i);
+
+        // The Finalmap tab has no layer to paint on (it edits whole metatiles), so there the name and the eye are ONE toggle: show or hide that layer of the
+        // view, nothing else. (The Porymap tab keeps the separate eye and name: the name chooses the layer the tools paint on.)
+        auto *view = new QToolButton;
+        view->setObjectName(QString("toolButton_FinalmapLayer_%1").arg(layerNames[i]));
+        view->setText(layerNames[i]);
+        view->setCheckable(true);
+        view->setChecked(true);
+        view->setAutoRaise(true);
+        view->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        view->setIcon(QIcon(":/icons/folder_eye_open.ico"));
+        view->setToolTip(QString("Show or hide the %1 layer of the Finalmap. A view setting only: nothing of the map, the tilesets or the Porymap changes.").arg(layerNames[i]));
+        view->hide();
+
+        auto *alpha = new QCheckBox(QString::fromUtf8("\xCE\xB1")); // Greek small alpha
+        alpha->setObjectName(QString("checkBox_PreMapLayerAlpha_%1").arg(layerNames[i]));
+        alpha->setToolTip("Alpha Channel -- marks this layer for real GBA alpha blending (BLDALPHA), for light/shadow effects. Stored now; the GBA-side implementation is handled separately later.");
+
+        auto *cell = new QHBoxLayout;
+        cell->setSpacing(1);
+        cell->setContentsMargins(0, 0, 0, 0);
+        cell->addWidget(eye);
+        cell->addWidget(select);
+        cell->addWidget(view);
+        cell->addWidget(alpha);
+        static_cast<QBoxLayout *>(ui->widget_PreMapLayers->layout())->addLayout(cell);
+
+        this->layerSelectButtons[i] = select;
+        this->layerEyeButtons[i] = eye;
+        this->layerAlphaChecks[i] = alpha;
+        this->layerViewButtons[i] = view;
+
+        connect(view, &QToolButton::toggled, this, [this, i, view](bool checked) {
+            view->setIcon(QIcon(checked ? ":/icons/folder_eye_open.ico" : ":/icons/folder_eye_closed.ico"));
+            if (this->editor) this->editor->setFinalmapLayerVisible(i, checked);   // (only redraws the view)
+        });
+        connect(eye, &QToolButton::toggled, this, [this, i, eye](bool checked) {
+            eye->setIcon(QIcon(checked ? ":/icons/folder_eye_open.ico" : ":/icons/folder_eye_closed.ico"));
+            if (!this->editor || !this->editor->preMapItem) return;
+            this->editor->preMapItem->setLayerVisible(i, checked); // only repaints: the layer pictures stay
+        });
+        connect(alpha, &QCheckBox::toggled, this, [this, i](bool checked) {
+            if (!this->editor || !this->editor->layout) return;
+            this->editor->pushPreMapAlpha(i, checked); // undoable, and auto-saved
+        });
+    }
+    connect(layerGroup, &QButtonGroup::idClicked, this, [this](int index) {
+        static const Editor::PreMapLayer layers[3] = {
+            Editor::PreMapLayer::Bottom, Editor::PreMapLayer::Middle, Editor::PreMapLayer::Top
+        };
+        if (index >= 0 && index < 3 && this->editor)
+            this->editor->setPreMapLayer(layers[index]);
+    });
+    // The eraser: right after the layer bar (Porymap tab: Clear Layers, Finalmap tab: Clean the Map -- the button follows the tab, see updateTransferButtons()).
+    this->eraserButton = new QToolButton;
+    this->eraserButton->setObjectName(QStringLiteral("toolButton_Eraser"));
+    this->eraserButton->setIcon(eraserIcon());
+    this->eraserButton->setIconSize(QSize(20, 20));
+    this->eraserButton->setAutoRaise(true);
+    if (QLayout *toolsLayout = ui->frame_mapTools->layout()) {   // (the flow layout of the map tools: the bar is its last item, the eraser follows it)
+        toolsLayout->addWidget(this->eraserButton);
+        const QMargins margins = toolsLayout->contentsMargins();
+        this->eraserButton->setFixedHeight(ui->frame_mapTools->height() - margins.top() - margins.bottom());
+    }
+    connect(this->eraserButton, &QToolButton::clicked, this, &MainWindow::onEraserClicked);
+    updateLayerBarEnabled();   // (which variant of the bar shows depends on the tab the window starts on)
+    updateTransferButtons();
+}
+
+// CUSTOM ENGINE: the layer bar means something in the Porymap (design) view -- eye, layer to paint on, alpha -- and in the Finalmap, where it is
+// a show / hide toggle per layer (eye and name in one) with the alpha flag next to it; on every other tab its fields are disabled instead of
+// staying clickable.
+void MainWindow::updateLayerBarEnabled() {
+    const int tab = ui->mainTabBar->currentIndex();
+    if (tab == MainTab::Porymap || tab == MainTab::Map) {   // (which variant shows follows the tab; on the others the last one stays, greyed out)
+        for (int i = 0; i < 3; i++) {
+            if (this->layerEyeButtons[i]) this->layerEyeButtons[i]->setVisible(tab == MainTab::Porymap);
+            if (this->layerSelectButtons[i]) this->layerSelectButtons[i]->setVisible(tab == MainTab::Porymap);
+            if (this->layerViewButtons[i]) this->layerViewButtons[i]->setVisible(tab == MainTab::Map);
+        }
+    }
+    ui->widget_PreMapLayers->setEnabled(tab == MainTab::Porymap || tab == MainTab::Map);
+}
+
+// Brings the layer tabs' Alpha checkboxes in line with the pre-map that was just loaded for the
+// current layout, and re-applies the (editor-only) eye states to its freshly created overlay.
+void MainWindow::syncPreMapLayerControls() {
+    if (!this->editor) return;
+    for (int i = 0; i < 3; i++) {
+        if (!this->layerAlphaChecks[i] || !this->layerEyeButtons[i]) continue;
+        const QSignalBlocker blocker(this->layerAlphaChecks[i]);
+        this->layerAlphaChecks[i]->setChecked(this->editor->preMap.alphaFlag(i));
+        if (this->editor->preMapItem)
+            this->editor->preMapItem->setLayerVisible(i, this->layerEyeButtons[i]->isChecked());
+        if (this->layerViewButtons[i])   // (the Finalmap's toggles are a view setting the Editor keeps across maps; a new Editor starts with everything shown)
+            this->editor->setFinalmapLayerVisible(i, this->layerViewButtons[i]->isChecked());
+    }
 }
 
 void MainWindow::on_actionCheck_for_Updates_triggered() {
@@ -434,6 +625,13 @@ void MainWindow::checkForUpdates(bool) {}
 
 void MainWindow::initEditor() {
     this->editor = new Editor(ui);
+    connect(this->editor, &Editor::preMapLayersLoaded, this, &MainWindow::syncPreMapLayerControls);
+    connect(this->editor, &Editor::preMapBehaviorPicked, this, &MainWindow::selectBehaviorInList);   // the eyedropper of the Behaviors tab
+    connect(this->editor, &Editor::tilesetsTransferred, this, &MainWindow::onTilesetsTransferred);   // Write to Finalmap / Pull to Porymap
+    connect(this->editor, &Editor::preMapLayerChanged, this, [this](int layer) { // e.g. the eyedropper switched the layer
+        if (layer < 0 || layer > 2 || !this->layerSelectButtons[layer]) return;
+        this->layerSelectButtons[layer]->setChecked(true);
+    });
     connect(this->editor, &Editor::eventsChanged, this, &MainWindow::updateEvents);
     connect(this->editor, &Editor::openConnectedMap, this, &MainWindow::onOpenConnectedMap);
     connect(this->editor, &Editor::openEventMap, this, &MainWindow::openEventMap);
@@ -504,6 +702,7 @@ void MainWindow::initMapList() {
 
     WheelFilter *wheelFilter = new WheelFilter(this);
     ui->mainTabBar->installEventFilter(wheelFilter);
+    if (this->topTabBar) this->topTabBar->installEventFilter(wheelFilter);
     ui->mapListContainer->tabBar()->installEventFilter(wheelFilter);
 
     // Create buttons for adding and removing items from the mapList
@@ -658,6 +857,7 @@ void MainWindow::updateWindowTitle() {
     } else {
         ui->mainTabBar->setTabIcon(MainTab::Map, QIcon(QStringLiteral(":/icons/map.ico")));
     }
+    syncTopTabBar();
 }
 
 void MainWindow::markMapEdited(Map* map) {
@@ -696,6 +896,13 @@ void MainWindow::loadUserSettings() {
     const QSignalBlocker b_Grid(ui->checkBox_ToggleGrid);
     ui->actionShow_Grid->setChecked(porymapConfig.showGrid);
     ui->checkBox_ToggleGrid->setChecked(porymapConfig.showGrid);
+
+    // Behaviors tab (Porymap view): how strongly the numbers cover the map
+    {
+        const QSignalBlocker b_BehaviorsOpacity(ui->horizontalSlider_BehaviorsOpacity);
+        ui->horizontalSlider_BehaviorsOpacity->setValue(qBound(0, porymapConfig.behaviorOverlayOpacity, 100));
+        ui->label_BehaviorsOpacityValue->setText(QString("%1%").arg(ui->horizontalSlider_BehaviorsOpacity->value()));
+    }
 
     // Collision opacity/transparency
     const QSignalBlocker b_CollisionTransparency(ui->horizontalSlider_CollisionTransparency);
@@ -855,11 +1062,9 @@ bool MainWindow::openProject(QString dir, bool initial) {
     porymapConfig.addRecentProject(dir);
     refreshRecentProjectsMenu();
 
-    prefab.initPrefabUI(
-                editor->metatile_selector_item,
-                ui->scrollAreaWidgetContents_Prefabs,
-                ui->label_prefabHelp,
-                editor->layout);
+    // CUSTOM ENGINE: the Porymap view's palette of porytiles (fixed-size view in a scroll area, zoom slider; the window never grows with it)
+    ui->horizontalSlider_PorytilesZoom->setValue(porymapConfig.metatilesZoom);
+    redrawPorytileSelector();
     Scripting::cb_ProjectOpened(dir);
     setWindowDisabled(false);
     porysplash->stop();
@@ -1201,7 +1406,7 @@ bool MainWindow::setMap(const QString &mapName) {
     userConfig.recentMapOrLayout = mapName;
 
     Scripting::cb_MapOpened(mapName);
-    prefab.updatePrefabUi(editor->layout);
+    redrawPorytileSelector();
     updateTilesetEditor();
 
     emit mapOpened(editor->map);
@@ -1225,6 +1430,7 @@ void MainWindow::setLayoutOnlyMode(bool layoutOnly) {
     ui->mainTabBar->setTabToolTip(MainTab::Header, toolTip);
     ui->mainTabBar->setTabToolTip(MainTab::Connections, toolTip);
     ui->mainTabBar->setTabToolTip(MainTab::WildPokemon, this->editor->project->wildEncountersLoaded ? toolTip : QString());
+    syncTopTabBar();
 
     ui->comboBox_LayoutSelector->setEnabled(mapEditingEnabled);
     ui->actionDuplicate_Current_Map->setEnabled(mapEditingEnabled);
@@ -1293,6 +1499,7 @@ void MainWindow::redrawMapScene() {
 }
 
 void MainWindow::refreshMapScene() {
+    redrawPorytileSelector();   // (the palette of the Porymap view follows every redraw of the map: tileset change, reload, resize)
     ui->graphicsView_Map->setScene(editor->scene);
     ui->graphicsView_Map->setSceneRect(editor->scene->sceneRect());
     ui->graphicsView_Map->editor = editor;
@@ -1323,6 +1530,83 @@ void MainWindow::refreshMetatileViews() {
 
 void MainWindow::refreshCollisionSelector() {
     on_horizontalSlider_CollisionZoom_valueChanged(ui->horizontalSlider_CollisionZoom->value());
+}
+
+// CUSTOM ENGINE: the Behaviors tab's list -- the brush of its pencil: "Auto" (the field takes the behavior of its porytiles) on top, then
+// every behavior of the project as "0xNN  NAME" with a swatch of the color it has on the map. The color is read from the project's behavior
+// sheet, so a hand-edited sheet is reflected here too. (0x00 is "no behavior" and has no color.) The value of an entry is in Qt::UserRole.
+void MainWindow::refreshBehaviorList() {
+    QListWidget *list = ui->listWidget_Behaviors;
+    const QSignalBlocker blocker(list);
+    list->setTextElideMode(Qt::ElideNone);
+    list->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    list->clear();
+    if (!this->editor || !this->editor->project)
+        return;
+    auto *autoItem = new QListWidgetItem(QStringLiteral("Auto  (the porytiles decide)"));
+    autoItem->setData(Qt::UserRole, static_cast<int>(PreMap::kAutoBehavior));
+    autoItem->setToolTip(QStringLiteral("Takes a placed behavior away: the field shows the behavior of its porytiles again (the topmost with one wins)."));
+    list->addItem(autoItem);
+    for (auto it = this->editor->project->metatileBehaviorMapInverse.constBegin(); it != this->editor->project->metatileBehaviorMapInverse.constEnd(); ++it) {
+        QString hex = QString("%1").arg(it.key(), 2, 16, QChar('0')).toUpper();
+        auto item = new QListWidgetItem(QString("0x%1  %2").arg(hex, it.value()));
+        item->setData(Qt::UserRole, static_cast<int>(it.key()));
+        {   // (0x00 too: it is drawn on the map with its own colour, so the list shows that colour)
+            QImage cell = ProjectSheets::behaviorCell(this->editor->behaviorSheet, static_cast<int>(it.key()));
+            QColor color = cell.isNull() ? BehaviorColor::forId(static_cast<int>(it.key())) : cell.pixelColor(1, 1);
+            color.setAlpha(255);
+            QPixmap swatch(12, 12);
+            swatch.fill(color);
+            item->setIcon(QIcon(swatch));
+        }
+        list->addItem(item);
+    }
+    on_lineEdit_BehaviorsFilter_textChanged(ui->lineEdit_BehaviorsFilter->text());
+    // the brush follows the list: the entry of the current brush is selected (Auto after a project load)
+    selectBehaviorInList(this->editor->preMapBehaviorBrush(), 0);
+}
+
+void MainWindow::on_listWidget_Behaviors_currentRowChanged(int row) {
+    if (!this->editor)
+        return;
+    QListWidgetItem *item = row >= 0 ? ui->listWidget_Behaviors->item(row) : nullptr;
+    this->editor->setPreMapBehaviorBrush(item ? static_cast<uint16_t>(item->data(Qt::UserRole).toInt()) : PreMap::kAutoBehavior);
+}
+
+// The Behaviors tab's Opacity slider: how strongly the numbers cover the map (the overlay item's opacity); remembered.
+void MainWindow::on_horizontalSlider_BehaviorsOpacity_valueChanged(int value) {
+    porymapConfig.behaviorOverlayOpacity = value;
+    ui->label_BehaviorsOpacityValue->setText(QString("%1%").arg(value));
+    if (this->editor && this->editor->behaviorOverlayItem)
+        this->editor->behaviorOverlayItem->setOpacity(value / 100.0);
+}
+
+void MainWindow::on_lineEdit_BehaviorsFilter_textChanged(const QString &text) {
+    const QString needle = text.trimmed();
+    QListWidget *list = ui->listWidget_Behaviors;
+    for (int i = 0; i < list->count(); i++) {
+        QListWidgetItem *item = list->item(i);
+        const bool isAuto = item->data(Qt::UserRole).toInt() == static_cast<int>(PreMap::kAutoBehavior);
+        item->setHidden(!needle.isEmpty() && !isAuto && !item->text().contains(needle, Qt::CaseInsensitive));   // (Auto always stays)
+    }
+}
+
+// The eyedropper found a field: the list selects what the pencil should place to get the same -- the placed value if there is one, else
+// what the field shows through its porytiles, else Auto. (Also used to show the current brush after a reload.)
+void MainWindow::selectBehaviorInList(uint16_t stored, uint32_t shown) {
+    QListWidget *list = ui->listWidget_Behaviors;
+    const int wanted = stored != PreMap::kAutoBehavior ? stored : (shown != 0 ? static_cast<int>(shown) : static_cast<int>(PreMap::kAutoBehavior));
+    for (int i = 0; i < list->count(); i++) {
+        if (list->item(i)->data(Qt::UserRole).toInt() == wanted) {
+            list->setCurrentRow(i);   // (currentRowChanged sets the brush)
+            list->scrollToItem(list->item(i));
+            return;
+        }
+    }
+    // (a value the project does not know: the brush takes it anyway, the list shows no entry)
+    list->setCurrentRow(-1);
+    if (this->editor)
+        this->editor->setPreMapBehaviorBrush(static_cast<uint16_t>(wanted));
 }
 
 // Some events (like warps) have data that refers to an event on a different map.
@@ -1467,6 +1751,7 @@ bool MainWindow::setProjectUI() {
 
     // Wild Encounters tab
     ui->mainTabBar->setTabEnabled(MainTab::WildPokemon, editor->project->wildEncountersLoaded);
+    syncTopTabBar();
 
     ui->newEventToolButton->setEventTypeVisible(Event::Type::WeatherTrigger, projectConfig.eventWeatherTriggerEnabled);
     ui->newEventToolButton->setEventTypeVisible(Event::Type::SecretBase, projectConfig.eventSecretBaseEnabled);
@@ -1476,7 +1761,8 @@ bool MainWindow::setProjectUI() {
 
     editor->setCollisionGraphics();
     ui->spinBox_SelectedElevation->setMaximum(Block::getMaxElevation());
-    ui->spinBox_SelectedCollision->setMaximum(Block::getMaxCollision());
+    editor->loadBehaviorSheet();
+    refreshBehaviorList();
 
     // map models
     this->mapGroupModel = new MapGroupModel(editor->project);
@@ -1518,6 +1804,7 @@ bool MainWindow::setProjectUI() {
         eventTabIcon = ProjectConfig::getPlayerIcon(projectConfig.baseGameVersion, QRandomGenerator::global()->bounded(0, 2));
     }
     ui->mainTabBar->setTabIcon(MainTab::Events, eventTabIcon);
+    syncTopTabBar();
 
     return true;
 }
@@ -1539,7 +1826,6 @@ void MainWindow::clearProjectUI() {
     this->mapHeaderForm->clear();
     ui->label_NoEvents->setText("");
 
-    prefab.clearPrefabUi();
 
     // Clear map models
     delete this->mapGroupModel;
@@ -2023,6 +2309,12 @@ void MainWindow::duplicate() {
 }
 
 void MainWindow::copy() {
+    auto typingInAField = []() {
+        QWidget *focused = QApplication::focusWidget();
+        return focused && (qobject_cast<QLineEdit *>(focused) || qobject_cast<QTextEdit *>(focused) || qobject_cast<QPlainTextEdit *>(focused) || qobject_cast<QAbstractSpinBox *>(focused));
+    };
+    if (this->editor && this->editor->isPorymapView() && this->editor->preMapItem && !typingInAField() && this->editor->preMapItem->copySelection())
+        return; // Map Objects (kept in memory, not on the system clipboard)
     auto focused = QApplication::focusWidget();
     if (focused) {
         // Allow copying text from selectable QLabels.
@@ -2139,6 +2431,9 @@ void MainWindow::setClipboardData(QImage image) {
 }
 
 void MainWindow::paste() {
+    if (this->editor && this->editor->isPorymapView() && this->editor->preMapItem && !(QApplication::focusWidget() && (qobject_cast<QLineEdit *>(QApplication::focusWidget()) || qobject_cast<QTextEdit *>(QApplication::focusWidget()) || qobject_cast<QPlainTextEdit *>(QApplication::focusWidget()) || qobject_cast<QAbstractSpinBox *>(QApplication::focusWidget())))
+        && this->editor->preMapItem->pasteAtHover())
+        return;
     if (!editor || !editor->project || !(editor->map || editor->layout)) return;
 
     QClipboard *clipboard = QGuiApplication::clipboard();
@@ -2238,8 +2533,7 @@ void MainWindow::on_mapViewTab_tabBarClicked(int index)
 
     static const QMap<int, Editor::EditMode> tabIndexToEditMode = {
         {MapViewTab::Metatiles, Editor::EditMode::Metatiles},
-        {MapViewTab::Collision, Editor::EditMode::Collision},
-        {MapViewTab::Prefabs,   Editor::EditMode::Metatiles},
+        {MapViewTab::Elevation, Editor::EditMode::Collision}, // the edit mode keeps its old name
     };
     if (tabIndexToEditMode.contains(index)) {
         editor->setEditMode(tabIndexToEditMode.value(index));
@@ -2247,16 +2541,26 @@ void MainWindow::on_mapViewTab_tabBarClicked(int index)
 
     if (index == MapViewTab::Metatiles) {
         refreshMetatileViews();
-    } else if (index == MapViewTab::Collision) {
+    } else if (index == MapViewTab::Elevation) {
         refreshCollisionSelector();
-    } else if (index == MapViewTab::Prefabs) {
-        if (projectConfig.prefabFilepath.isEmpty() && !projectConfig.prefabImportPrompted) {
-            // User hasn't set up prefabs and hasn't been prompted before.
-            // Ask if they'd like to import the default prefabs file.
-            if (prefab.tryImportDefaultPrefabs(this, projectConfig.baseGameVersion))
-                prefab.updatePrefabUi(this->editor->layout);
-        }
     }
+    updateLayerBarEnabled();
+}
+
+// CUSTOM ENGINE: right-hand tabs of the Porymap (design) view. The Editor decides from the edit mode what
+// the map view shows (only Map Objects on an empty background, plus the Behaviors overlay on its own tab).
+void MainWindow::on_porymapViewTab_tabBarClicked(int index)
+{
+    ui->porymapViewTab->setCurrentIndex(index);
+
+    static const QMap<int, Editor::EditMode> tabIndexToEditMode = {
+        {PorymapViewTab::MapObjects, Editor::EditMode::PorymapObjects},
+        {PorymapViewTab::Behaviors,  Editor::EditMode::Behaviors},
+    };
+    if (tabIndexToEditMode.contains(index)) {
+        editor->setEditMode(tabIndexToEditMode.value(index));
+    }
+    updateLayerBarEnabled();
 }
 
 void MainWindow::on_mainTabBar_tabBarClicked(int index)
@@ -2267,6 +2571,7 @@ void MainWindow::on_mainTabBar_tabBarClicked(int index)
         Scripting::cb_MainTabChanged(oldIndex, index);
 
     static const QMap<int, int> tabIndexToStackIndex = {
+        {MainTab::Porymap, 0},
         {MainTab::Map, 0},
         {MainTab::Events, 0},
         {MainTab::Header, 1},
@@ -2276,7 +2581,7 @@ void MainWindow::on_mainTabBar_tabBarClicked(int index)
     ui->mainStackedWidget->setCurrentIndex(tabIndexToStackIndex.value(index));
 
     static const QMap<int, Editor::EditMode> tabIndexToEditMode = {
-        // MainTab::Map itself has no edit mode, depends on mapViewTab.
+        // MainTab::Porymap / MainTab::Map have no edit mode of their own, it depends on their right-hand tab.
         {MainTab::Events,      Editor::EditMode::Events},
         {MainTab::Header,      Editor::EditMode::Header},
         {MainTab::Connections, Editor::EditMode::Connections},
@@ -2286,7 +2591,14 @@ void MainWindow::on_mainTabBar_tabBarClicked(int index)
         editor->setEditMode(tabIndexToEditMode.value(index));
     }
 
-    if (index == MainTab::Map) {
+    // Layout / Primary / Secondary / Border are shown in both map views, but not on the Events tab.
+    ui->frame_MapHeader->setVisible(index == MainTab::Porymap || index == MainTab::Map);
+    updateTransferButtons();
+
+    if (index == MainTab::Porymap) {
+        ui->stackedWidget_MapEvents->setCurrentIndex(2);
+        on_porymapViewTab_tabBarClicked(ui->porymapViewTab->currentIndex());
+    } else if (index == MainTab::Map) {
         ui->stackedWidget_MapEvents->setCurrentIndex(0);
         on_mapViewTab_tabBarClicked(ui->mapViewTab->currentIndex());
     } else if (index == MainTab::Events) {
@@ -2296,6 +2608,8 @@ void MainWindow::on_mainTabBar_tabBarClicked(int index)
         connect(this, &MainWindow::mapOpened, this, &MainWindow::tryUnlockMainTabIcon, Qt::UniqueConnection);
         connect(&this->unlockableMainTabIcon, &UnlockableIcon::unlocked, this, &MainWindow::overrideMainTabIcons, Qt::UniqueConnection);
     }
+
+    updateLayerBarEnabled();
 
     if (!editor->map) return;
     if (index != MainTab::WildPokemon) {
@@ -2732,8 +3046,10 @@ void MainWindow::onTilesetsSaved(QString primaryTilesetLabel, QString secondaryT
     } else {
         this->editor->project->getTileset(secondaryTilesetLabel, true);
     }
-    if (updated)
+    if (updated) {
         redrawMapScene();
+        redrawPorytileSelector();   // (the palette was rebuilt with the saved tilesets)
+    }
 }
 
 void MainWindow::onMapRulerStatusChanged(const QString &status) {
@@ -2883,7 +3199,7 @@ void MainWindow::setPrimaryTileset(const QString &tilesetLabel) {
         editor->updatePrimaryTileset(tilesetLabel);
         redrawMapScene();
         updateTilesetEditor();
-        prefab.updatePrefabUi(editor->layout);
+        redrawPorytileSelector();
         markLayoutEdited();
     }
 
@@ -2900,7 +3216,7 @@ void MainWindow::setSecondaryTileset(const QString &tilesetLabel) {
         editor->updateSecondaryTileset(tilesetLabel);
         redrawMapScene();
         updateTilesetEditor();
-        prefab.updatePrefabUi(editor->layout);
+        redrawPorytileSelector();
         markLayoutEdited();
     }
 
@@ -2909,43 +3225,324 @@ void MainWindow::setSecondaryTileset(const QString &tilesetLabel) {
     ui->comboBox_SecondaryTileset->setTextItem(this->editor->layout->tileset_secondary_label);
 }
 
+// ---- CUSTOM ENGINE: Write to Finalmap / Pull to Porymap --------------------------------------------------------------------------------
+
+std::function<int()> MainWindow::pushToFinalmapPrompt;
+std::function<int()> MainWindow::pullToPorymapPrompt;
+QString MainWindow::lastPullQuestion;
+
+// Both transfers rewrite the tilesets of this map, which the Tileset Editor holds COPIES of: unsaved work there would be
+// written back over them later. So it has to be clean; afterwards it is told to take fresh copies.
+bool MainWindow::transferPreconditionsOk(const QString &what) {
+    if (!this->editor || !this->editor->layout || !this->editor->project) {
+        ErrorMessage::show(QString("%1 needs an open map.").arg(what), this);
+        return false;
+    }
+    if (this->tilesetEditor && this->tilesetEditor->isDirty()) {
+        WarningMessage::show(QString("%1 cannot run while the Tileset Editor has unsaved changes.").arg(what),
+                             QStringLiteral("It works on copies of the tilesets, which this would write over. Save or discard them there first."), this);
+        return false;
+    }
+    if (this->editor->preMapLoadedLayoutId != this->editor->layout->id) {
+        ErrorMessage::show(QString("%1 needs this map's porytiles.").arg(what),
+                           QStringLiteral("Open the Porymap view of this map once, then try again."), this);
+        return false;
+    }
+    return true;
+}
+
+// A transfer (or its undo / redo) changed tileset data in memory: every view that shows it starts over.
+void MainWindow::onTilesetsTransferred() {
+    redrawMapScene();               // the map, the metatile selector and the porytile palette
+    refreshMetatileViews();
+    if (this->tilesetEditor) {
+        if (!this->tilesetEditor->isDirty()) {
+            this->tilesetEditor->reloadTilesetsFromProject();
+        } else {
+            // Only reachable through an undo / redo (a transfer itself refuses to start then). Its copies are older than the
+            // tilesets now, and saving them there would take the transfer's metatiles away from a map that uses them.
+            WarningMessage::show(QStringLiteral("The Tileset Editor still holds unsaved changes from before this step."),
+                                 QStringLiteral("Its copy of the tilesets is now out of date. Saving there would write the old blocks back over what Write / Pull just changed. "
+                                                "Close the Tileset Editor discarding its changes, or save the project first and re-open it."), this);
+        }
+    }
+    updateWindowTitle();
+}
+
+// Write to Finalmap goes from the Porymap to the Finalmap, so it is on the Porymap tab; Pull to Porymap goes the other way, so it is on the
+// Finalmap tab. Nowhere else (Events, Connections, ...) is either of them useful.
+void MainWindow::updateTransferButtons() {
+    const int tab = ui->mainTabBar->currentIndex();
+    ui->pushButton_PushToFinalmap->setVisible(tab == MainTab::Porymap);
+    ui->pushButton_PullToPorymap->setVisible(tab == MainTab::Map);
+    if (this->eraserButton) {   // (the eraser is on the same two tabs and means what the tab shows)
+        this->eraserButton->setVisible(tab == MainTab::Porymap || tab == MainTab::Map);
+        this->eraserButton->setToolTip(tab == MainTab::Map
+            ? QStringLiteral("Clean the Map: sets EVERY field of the Finalmap to metatile 0 (the empty one) with elevation 0. It asks first and is one Undo step.")
+            : QStringLiteral("Clear Layers: empties layers of the Porymap -- Bottom, Middle, Top and / or the placed behaviors -- back to Porytile 0. "
+                             "A window asks which, then it asks once more. It is one Undo step; the Finalmap is not touched."));
+    }
+}
+
+std::function<int()> MainWindow::clearLayersChooser;
+std::function<int()> MainWindow::clearLayersPrompt;
+std::function<int()> MainWindow::cleanMapPrompt;
+QString MainWindow::lastEraserQuestion;
+std::function<int(QDialog *)> MainWindow::clearLayersDialogDriver;
+QString MainWindow::lastPushQuestion;
+
+void MainWindow::onEraserClicked() {
+    const int tab = ui->mainTabBar->currentIndex();
+    if (tab == MainTab::Porymap)
+        clearPorymapLayers();
+    else if (tab == MainTab::Map)
+        cleanFinalmap();
+}
+
+// The window that asks WHAT to clear. Nothing is chosen to begin with and OK stays off until something is: an accidental click on the eraser
+// clears nothing.
+int MainWindow::askLayersToClear() {
+    if (clearLayersChooser)
+        return clearLayersChooser();
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Clear Layers"));
+    auto *column = new QVBoxLayout(&dialog);
+    column->addWidget(new QLabel(QStringLiteral("What do you want to clear on this map?\nEvery field of it goes back to Porytile 0 (empty). Nothing happens before you have confirmed once more."), &dialog));
+    QCheckBox *boxes[4];
+    static const char *names[4] = { "Bottom layer", "Middle layer", "Top layer", "Placed behaviors (the fields take the behavior of their porytiles again)" };
+    for (int i = 0; i < 4; i++) {
+        boxes[i] = new QCheckBox(QString::fromLatin1(names[i]), &dialog);
+        column->addWidget(boxes[i]);
+    }
+    auto *everything = new QCheckBox(QStringLiteral("Everything: all three layers and the behaviors"), &dialog);
+    column->addWidget(everything);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Continue..."));
+    buttons->button(QDialogButtonBox::Ok)->setEnabled(false);
+    column->addWidget(buttons);
+    auto refresh = [&]() {
+        bool any = false, all = true;
+        for (QCheckBox *box : boxes) { any = any || box->isChecked(); all = all && box->isChecked(); }
+        const QSignalBlocker blocker(everything);
+        everything->setChecked(all);
+        buttons->button(QDialogButtonBox::Ok)->setEnabled(any);
+    };
+    for (QCheckBox *box : boxes)
+        connect(box, &QCheckBox::toggled, &dialog, refresh);
+    connect(everything, &QCheckBox::clicked, &dialog, [&](bool checked) { for (QCheckBox *box : boxes) box->setChecked(checked); });
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if ((clearLayersDialogDriver ? clearLayersDialogDriver(&dialog) : dialog.exec()) != QDialog::Accepted)
+        return 0;
+    int parts = 0;
+    for (int i = 0; i < 4; i++)
+        if (boxes[i]->isChecked()) parts |= (1 << i);
+    return parts;
+}
+
+void MainWindow::clearPorymapLayers() {
+    if (!this->editor || !this->editor->layout || this->editor->preMapLoadedLayoutId != this->editor->layout->id) {
+        ErrorMessage::show(QStringLiteral("Clear Layers needs an open map with its Porymap loaded."), this);
+        return;
+    }
+    const int parts = askLayersToClear();
+    if (parts == 0) {
+        ui->statusBar->showMessage(QStringLiteral("Clear Layers: nothing was chosen, nothing was changed."), 5000);
+        return;
+    }
+    const QString what = PreMapClearCommand::describe(parts);
+    lastEraserQuestion = QString("Really clear %1 of this map?\n\n"
+                                 "All %2 fields of %3 go back to %4. The Finalmap is not touched.\n"
+                                 "One Ctrl+Z in the Porymap view brings it all back.")
+                             .arg(what).arg(this->editor->preMap.width() * this->editor->preMap.height())
+                             .arg(parts == PreMapClearCommand::Behaviors ? QStringLiteral("it") : QStringLiteral("them"))
+                             .arg(parts == PreMapClearCommand::Behaviors ? QStringLiteral("Auto (the behavior of their porytiles)")
+                                                                          : (parts & PreMapClearCommand::Behaviors ? QStringLiteral("Porytile 0 / Auto") : QStringLiteral("Porytile 0")));
+    const int answer = clearLayersPrompt ? clearLayersPrompt() : QuestionMessage::show(lastEraserQuestion, this);
+    if (answer != QMessageBox::Yes) {
+        ui->statusBar->showMessage(QStringLiteral("Clear Layers: nothing was changed."), 5000);
+        return;
+    }
+    this->editor->preMapStackFor(this->editor->layout->id)->push(new PreMapClearCommand(this->editor, this->editor->layout->id, parts));
+    ui->statusBar->showMessage(QString("Cleared %1. Undo with Ctrl+Z.").arg(what), 10000);
+    updateWindowTitle();
+}
+
+void MainWindow::cleanFinalmap() {
+    if (!this->editor || !this->editor->layout || this->editor->layout->blockdata.isEmpty()) {
+        ErrorMessage::show(QStringLiteral("Clean the Map needs an open map."), this);
+        return;
+    }
+    lastEraserQuestion = QString("Really clean the whole Finalmap?\n\n"
+                                 "All %1 fields become metatile 0 (the empty one) with elevation 0. The tilesets and the Porymap are not touched.\n"
+                                 "One Ctrl+Z on this tab brings it all back.")
+                             .arg(this->editor->layout->blockdata.size());
+    const int answer = cleanMapPrompt ? cleanMapPrompt() : QuestionMessage::show(lastEraserQuestion, this);
+    if (answer != QMessageBox::Yes) {
+        ui->statusBar->showMessage(QStringLiteral("Clean the Map: nothing was changed."), 5000);
+        return;
+    }
+    this->editor->layout->editHistory.push(new CleanFinalmapCommand(this->editor, this->editor->layout));
+    ui->statusBar->showMessage(QStringLiteral("Cleaned the Finalmap: every field is metatile 0 with elevation 0. Undo with Ctrl+Z."), 10000);
+    updateWindowTitle();
+    updateMapList();
+}
+
+void MainWindow::on_pushButton_PushToFinalmap_clicked() {
+    if (!transferPreconditionsOk(QStringLiteral("Write to Finalmap")))
+        return;
+    Layout *layout = this->editor->layout;
+    const MapTransfer::PushPlan plan = MapTransfer::planPush(layout, &this->editor->preMap, this->editor->project);
+    if (!plan.ok) {
+        ErrorMessage::show(QStringLiteral("Write to Finalmap did not run."), plan.error, this);
+        return;
+    }
+    if (plan.changedFields == 0 && plan.writes.isEmpty()) {
+        ui->statusBar->showMessage(QStringLiteral("Write to Finalmap: the Finalmap of this map already matches its porytiles, nothing to do."), 8000);
+        return;
+    }
+    QString question = QString("Write the porytiles of this map into the Finalmap?\n\n"
+                               "%1 of %2 fields get another metatile.\n"
+                               "%3 different metatiles are needed: %4 already exist, %5 fill an empty slot, %6 are new.\n"
+                               "%7\n"
+                               "The elevations stay as they are. Nothing is written yet: the map AND the changed tilesets are saved "
+                               "with the project (Ctrl+S). One Ctrl+Z on the Finalmap tab takes all of it back.")
+                           .arg(plan.changedFields).arg(plan.fields).arg(plan.distinct).arg(plan.reused).arg(plan.filledEmpty).arg(plan.appended)
+                           .arg(plan.notes.isEmpty() ? QString() : plan.notes.join("\n") + "\n");
+    lastPushQuestion = question;
+    const int answer = pushToFinalmapPrompt ? pushToFinalmapPrompt() : QuestionMessage::show(question, this);
+    if (answer != QMessageBox::Yes) {
+        ui->statusBar->showMessage(QStringLiteral("Write to Finalmap: nothing was changed."), 5000);
+        return;
+    }
+    layout->editHistory.push(new PushToFinalmapCommand(this->editor, layout, plan));
+    on_mainTabBar_tabBarClicked(MainTab::Map);   // show what it did
+    ui->statusBar->showMessage(QString("Wrote to the Finalmap: %1 field(s) changed, %2 metatile(s) reused, %3 filled an empty slot, %4 added%5. "
+                                       "Undo with Ctrl+Z here, or Ctrl+S to save the map and the changed tilesets.")
+                                   .arg(plan.changedFields).arg(plan.reused).arg(plan.filledEmpty).arg(plan.appended)
+                                   .arg(plan.labels ? QString(", %1 label(s) written").arg(plan.labels) : QString()), 20000);
+    updateWindowTitle();
+    updateMapList();
+}
+
+void MainWindow::on_pushButton_PullToPorymap_clicked() {
+    if (!transferPreconditionsOk(QStringLiteral("Pull to Porymap")))
+        return;
+    Layout *layout = this->editor->layout;
+    const MapTransfer::PullPlan plan = MapTransfer::planPull(layout, &this->editor->preMap, this->editor->project);
+    if (!plan.ok) {
+        ErrorMessage::show(QStringLiteral("Pull to Porymap did not run."), plan.error, this);
+        return;
+    }
+    // When the porytile set does not cover the map -- it is empty, or entries are missing -- the question says so FIRST and asks
+    // outright whether the missing porytiles may be created (like a Write creates missing metatiles). Only a set that covers the
+    // whole map gets the plain confirmation.
+    QString question;
+    const QString replaces = QString("This REPLACES all three layers and the placed behaviors of this map (%1 fields).").arg(plan.fields);
+    const QString afterwards = QStringLiteral("The Finalmap itself is not touched. One Ctrl+Z in the Porymap view takes it back; the behavior history of this map is cleared. "
+                                              "New porytiles are saved with the project (Ctrl+S); the grid itself is saved at once, as always.");
+    if (plan.needsWarning()) {
+        QStringList lines;
+        if (plan.createdPorytiles > 0) {
+            lines << QStringLiteral("The porytiles of these tilesets do not cover this map.");
+            lines << QString();
+            if (plan.porytilesEmpty())
+                lines << QStringLiteral("The porytile set is EMPTY: neither the primary nor the secondary tileset has a porytile with tiles yet.")
+                      << QString("%1 porytile(s) would have to be created from the metatiles of this map (%2 in the primary, %3 in the secondary tileset).")
+                             .arg(plan.createdPorytiles).arg(plan.createdPrimary).arg(plan.createdSecondary);
+            else
+                lines << QString("%1 porytile(s) are MISSING (%2 in the primary, %3 in the secondary tileset); %4 that exist are used.")
+                             .arg(plan.createdPorytiles).arg(plan.createdPrimary).arg(plan.createdSecondary).arg(plan.reusedPorytiles);
+        } else {
+            lines << QStringLiteral("Some fields of this map cannot be converted.") << QString();
+        }
+        for (const QString &note : plan.notes)   // (a porytile set that has to grow says so: it grows by itself, up to its limit)
+            if (note.contains(QLatin1String("grows by itself")))
+                lines << note;
+        if (plan.missingMetatileFields > 0)
+            lines << QString("%1 field(s) use a metatile that does not exist in these tilesets; they become Porytile 0.").arg(plan.missingMetatileFields);
+        lines << QString();
+        lines << (plan.createdPorytiles > 0 ? QStringLiteral("Create the missing porytiles now, and rebuild this map's porytiles with them?")
+                                            : QStringLiteral("Rebuild this map's porytiles anyway?"));
+        lines << QString();
+        if (plan.createdPorytiles > 0)
+            lines << QString("- New porytiles carry no behavior and no label. %1 field(s) keep their metatile's behavior as a placed one.").arg(plan.placedBehaviors);
+        lines << QString("- %1").arg(replaces) << QString("- %1").arg(afterwards);
+        question = lines.join("\n");
+    } else {
+        question = QString("Rebuild the porytiles of this map from the Finalmap?\n\n"
+                           "%1\n"
+                           "%2 porytile(s) are needed and all of them already exist.\n"
+                           "%3 field(s) keep their metatile's behavior as a placed one.\n\n"
+                           "%4")
+                       .arg(replaces).arg(plan.distinctPorytiles).arg(plan.placedBehaviors).arg(afterwards);
+    }
+    lastPullQuestion = question;
+    const int answer = pullToPorymapPrompt ? pullToPorymapPrompt() : QuestionMessage::show(question, this);
+    if (answer != QMessageBox::Yes) {
+        ui->statusBar->showMessage(QStringLiteral("Pull to Porymap: nothing was changed."), 5000);
+        return;
+    }
+    this->editor->preMapStackFor(layout->id)->push(new PullToPorymapCommand(this->editor, layout, plan));
+    on_mainTabBar_tabBarClicked(MainTab::Porymap);
+    on_porymapViewTab_tabBarClicked(PorymapViewTab::MapObjects);
+    ui->statusBar->showMessage(QString("Pulled to Porymap: %1 porytile(s) reused, %2 created, %3 field(s) got the behavior of their metatile. "
+                                       "Undo with Ctrl+Z here.")
+                                   .arg(plan.reusedPorytiles).arg(plan.createdPorytiles).arg(plan.placedBehaviors), 20000);
+    updateWindowTitle();
+}
+
 void MainWindow::on_pushButton_ChangeDimensions_clicked() {
     if (this->resizeLayoutPopup || !this->editor->layout || !this->editor->project) return;
 
     this->resizeLayoutPopup = new ResizeLayoutPopup(this->ui->graphicsView_Map, this->editor->layout, this->editor->project);
     this->resizeLayoutPopup->show();
     this->resizeLayoutPopup->setupLayoutView();
-    if (this->resizeLayoutPopup->exec() == QDialog::Accepted) {
-        Layout *layout = this->editor->layout;
-        QMargins result = this->resizeLayoutPopup->getResult();
-        QSize borderResult = this->resizeLayoutPopup->getBorderResult();
-        QSize oldLayoutDimensions(layout->getWidth(), layout->getHeight());
-        QSize oldBorderDimensions(layout->getBorderWidth(), layout->getBorderHeight());
-        if (!result.isNull() || (borderResult != oldBorderDimensions)) {
-            Blockdata oldMetatiles = layout->blockdata;
-            Blockdata oldBorder = layout->border;
+    if (this->resizeLayoutPopup->exec() == QDialog::Accepted)
+        applyLayoutResize(this->resizeLayoutPopup->getResult(), this->resizeLayoutPopup->getBorderResult());
+    this->resizeLayoutPopup->deleteLater();
+}
 
-            layout->adjustDimensions(result);
-            layout->setBorderDimensions(borderResult.width(), borderResult.height(), true, true);
-            layout->editHistory.push(new ResizeLayout(layout,
-                oldLayoutDimensions, result,
-                oldMetatiles, layout->blockdata,
-                oldBorderDimensions, borderResult,
-                oldBorder, layout->border
-            ));
-        }
-        // If we're in map-editing mode, adjust the events' position by the same amount.
-        Map *map = this->editor->map;
-        if (map) {
-            auto events = map->getEvents();
-            int deltaX = result.left();
-            int deltaY = result.top();
-            if ((deltaX || deltaY) && !events.isEmpty()) {
-                map->commit(new EventShift(events, deltaX, deltaY, this->editor->eventShiftActionId++));
-            }
+// CUSTOM ENGINE: the resize itself (also used by the tests, which cannot answer the popup).
+void MainWindow::applyLayoutResize(const QMargins &result, const QSize &borderResult) {
+    Layout *layout = this->editor->layout;
+    if (!layout)
+        return;
+    QSize oldLayoutDimensions(layout->getWidth(), layout->getHeight());
+    QSize oldBorderDimensions(layout->getBorderWidth(), layout->getBorderHeight());
+    if (!result.isNull() || (borderResult != oldBorderDimensions)) {
+        Blockdata oldMetatiles = layout->blockdata;
+        Blockdata oldBorder = layout->border;
+
+        layout->adjustDimensions(result);
+        layout->setBorderDimensions(borderResult.width(), borderResult.height(), true, true);
+        auto *resize = new ResizeLayout(layout,
+            oldLayoutDimensions, result,
+            oldMetatiles, layout->blockdata,
+            oldBorderDimensions, borderResult,
+            oldBorder, layout->border
+        );
+        // CUSTOM ENGINE: the porytile grid follows the map. Its move is a CHILD of the resize on the layout's undo stack, so one
+        // Undo (on the Finalmap tab, where this history is) takes back the resize and the porytiles together.
+        if (!result.isNull())
+            new PreMapResizeCommand(this->editor, layout->id, oldLayoutDimensions, result, resize);
+        layout->editHistory.push(resize);   // (PreMapResizeCommand clears the layout's porytile undo stack: its steps refer to the old frame)
+        if (!result.isNull())
+            ui->statusBar->showMessage("Map resized, the porytiles moved with it. Undo it on the Finalmap tab (Ctrl+Z); the porytile undo history of this map was cleared.", 15000);
+        // In the Porymap view the active undo stack is the porytile one, so the title's asterisk does not hear about this push.
+        updateWindowTitle();
+        updateMapList();
+    }
+    // If we're in map-editing mode, adjust the events' position by the same amount.
+    Map *map = this->editor->map;
+    if (map) {
+        auto events = map->getEvents();
+        int deltaX = result.left();
+        int deltaY = result.top();
+        if ((deltaX || deltaY) && !events.isEmpty()) {
+            map->commit(new EventShift(events, deltaX, deltaY, this->editor->eventShiftActionId++));
         }
     }
-    this->resizeLayoutPopup->deleteLater();
 }
 
 void MainWindow::setSmartPathsEnabled(bool enabled)
@@ -2981,6 +3578,7 @@ void MainWindow::on_actionTileset_Editor_triggered()
 void MainWindow::initTilesetEditor() {
     this->tilesetEditor = new TilesetEditor(this->editor->project, this->editor->layout, this);
     connect(this->tilesetEditor, &TilesetEditor::tilesetsSaved, this, &MainWindow::onTilesetsSaved);
+    connect(this->tilesetEditor, &TilesetEditor::dividerShownChanged, this, [this](bool) { if (this->editor) this->editor->redrawPaletteDividers(); });
 }
 
 MapListToolBar* MainWindow::getMapListToolBar(int tab) {
@@ -3137,6 +3735,28 @@ void MainWindow::reloadScriptEngine() {
     }
 }
 
+// CUSTOM ENGINE: the porytile palette follows its own zoom slider (scaled inside its fixed area; scrollbars, never a bigger window).
+void MainWindow::redrawPorytileSelector() {
+    if (!this->editor || !this->editor->porytile_selector_item || !this->editor->scene_porytiles)
+        return;
+    if (ui->graphicsView_Porytiles->scene() != this->editor->scene_porytiles)
+        ui->graphicsView_Porytiles->setScene(this->editor->scene_porytiles);
+    const double scale = pow(3.0, static_cast<double>(ui->horizontalSlider_PorytilesZoom->value() - 30) / 30.0);
+    QTransform transform;
+    transform.scale(scale, scale);
+    QSize size(this->editor->porytile_selector_item->pixmap().width(), this->editor->porytile_selector_item->pixmap().height());
+    ui->graphicsView_Porytiles->setSceneRect(0, 0, size.width(), size.height());
+    size *= scale;
+    ui->graphicsView_Porytiles->setResizeAnchor(QGraphicsView::NoAnchor);
+    ui->graphicsView_Porytiles->setTransform(transform);
+    ui->graphicsView_Porytiles->setFixedSize(size.width() + 2, size.height() + 2);
+    ui->scrollAreaWidgetContents_Porytiles->adjustSize();
+}
+
+void MainWindow::on_horizontalSlider_PorytilesZoom_valueChanged(int) {
+    redrawPorytileSelector();
+}
+
 void MainWindow::on_horizontalSlider_MetatileZoom_valueChanged(int value) {
     porymapConfig.metatilesZoom = value;
     double scale = pow(3.0, static_cast<double>(value - 30) / 30.0);
@@ -3178,14 +3798,10 @@ void MainWindow::on_horizontalSlider_CollisionZoom_valueChanged(int value) {
     ui->scrollAreaWidgetContents_Collision->adjustSize();
 }
 
-void MainWindow::on_spinBox_SelectedCollision_valueChanged(int collision) {
-    if (this->editor && this->editor->movement_permissions_selector_item)
-        this->editor->movement_permissions_selector_item->select(collision, ui->spinBox_SelectedElevation->value());
-}
-
 void MainWindow::on_spinBox_SelectedElevation_valueChanged(int elevation) {
+    ui->label_ElevationName->setText(Editor::getElevationName(elevation));
     if (this->editor && this->editor->movement_permissions_selector_item)
-        this->editor->movement_permissions_selector_item->select(ui->spinBox_SelectedCollision->value(), elevation);
+        this->editor->movement_permissions_selector_item->select(0, elevation);
 }
 
 void MainWindow::on_actionRegion_Map_Editor_triggered() {
@@ -3196,12 +3812,6 @@ void MainWindow::on_actionRegion_Map_Editor_triggered() {
     }
 
     Util::show(this->regionMapEditor);
-}
-
-void MainWindow::on_pushButton_CreatePrefab_clicked() {
-    auto dialog = new PrefabCreationDialog(this, this->editor->metatile_selector_item, this->editor->layout);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->open();
 }
 
 bool MainWindow::initRegionMapEditor(bool silent) {
@@ -3272,6 +3882,31 @@ bool MainWindow::closeSupplementaryWindows() {
     return true;
 }
 
+// CUSTOM ENGINE: layers.json follows a Change Dimensions at once (the Map Objects are auto-saved), while the layout itself only
+// changes on disk when the project is saved. These are the layouts whose history holds such a resize between the saved state
+// and the current one, i.e. the ones whose layers.json and layout would disagree after "Discard".
+static QList<Layout *> layoutsWithUnsavedObjectResize(Project *project) {
+    QList<Layout *> found;
+    for (const QString &id : project->layoutIds()) {
+        Layout *layout = project->getLayout(id);
+        if (!layout)
+            continue;
+        const QUndoStack &history = layout->editHistory;
+        const int clean = history.cleanIndex();
+        if (clean < 0 || clean == history.index())   // (clean < 0: the saved state cannot be reached any more)
+            continue;
+        bool resized = false;
+        for (int i = qMin(clean, history.index()); i < qMax(clean, history.index()) && !resized; i++) {
+            const QUndoCommand *command = history.command(i);
+            for (int c = 0; command && c < command->childCount() && !resized; c++)
+                resized = dynamic_cast<const PreMapResizeCommand *>(command->child(c)) != nullptr;
+        }
+        if (resized)
+            found.append(layout);
+    }
+    return found;
+}
+
 bool MainWindow::closeProject() {
     if (!isProjectOpen())
         return true;
@@ -3280,12 +3915,20 @@ bool MainWindow::closeProject() {
         return false;
 
     if (this->editor->project->hasUnsavedChanges()) {
-        auto reply = SaveChangesMessage::show(QStringLiteral("The project"), this);
+        const QList<Layout *> resized = layoutsWithUnsavedObjectResize(this->editor->project);
+        QString details;
+        if (!resized.isEmpty())
+            details = QString("%1 map(s) were resized and their porytiles moved with them. Discard takes the porytiles back to the saved map size too.").arg(resized.size());
+        auto reply = SaveChangesMessage::show(QStringLiteral("The project"), true, this, details);
         if (reply == QMessageBox::Yes) {
             if (!save())
                 return false;
         } else if (reply == QMessageBox::No) {
             logWarn("Closing project with unsaved changes.");
+            // Wind those layouts back to the saved state: that runs the Map Object part of the resize backwards (or forwards, when
+            // it was undone after saving), so layers.json fits the layout that stays on disk.
+            for (Layout *layout : resized)
+                layout->editHistory.setIndex(layout->editHistory.cleanIndex());
         } else if (reply == QMessageBox::Cancel) {
             return false;
         }

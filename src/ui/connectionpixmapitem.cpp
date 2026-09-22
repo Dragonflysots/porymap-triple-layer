@@ -140,5 +140,7 @@ void ConnectionPixmapItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
 }
 
 void ConnectionPixmapItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *) {
+    if (!isEnabled())   // (in the Porymap view the neighbours are display only)
+        return;
     emit connectionItemDoubleClicked(this->connection);
 }

@@ -7,6 +7,13 @@
 #include "validator.h"
 
 #include <QPainter>
+#include <QFileInfo>
+#include <QDir>
+#include <QDateTime>
+#include <QSaveFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <QImage>
 #include <algorithm>
 
@@ -20,11 +27,14 @@ Tileset::Tileset(const Tileset &other)
       metatiles_path(other.metatiles_path),
       metatile_attrs_label(other.metatile_attrs_label),
       metatile_attrs_path(other.metatile_attrs_path),
+      porytiles_path(other.porytiles_path),
       tilesImagePath(other.tilesImagePath),
       palettePaths(other.palettePaths),
       metatileLabels(other.metatileLabels),
+      porytileLabels(other.porytileLabels),
       palettes(other.palettes),
       palettePreviews(other.palettePreviews),
+      porytilesLoadError(other.porytilesLoadError),
       m_tilesImage(other.m_tilesImage.copy()),
       m_hasUnsavedTilesImage(other.m_hasUnsavedTilesImage)
 {
@@ -34,6 +44,9 @@ Tileset::Tileset(const Tileset &other)
 
     for (auto *metatile : other.m_metatiles) {
         m_metatiles.append(new Metatile(*metatile));
+    }
+    for (auto *porytile : other.m_porytiles) {
+        m_porytiles.append(new Metatile(*porytile));
     }
 }
 
@@ -46,10 +59,13 @@ Tileset &Tileset::operator=(const Tileset &other) {
     metatiles_path = other.metatiles_path;
     metatile_attrs_label = other.metatile_attrs_label;
     metatile_attrs_path = other.metatile_attrs_path;
+    porytiles_path = other.porytiles_path;
+    porytilesLoadError = other.porytilesLoadError;
     tilesImagePath = other.tilesImagePath;
     m_tilesImage = other.m_tilesImage.copy();
     palettePaths = other.palettePaths;
     metatileLabels = other.metatileLabels;
+    porytileLabels = other.porytileLabels;
     palettes = other.palettes;
     palettePreviews = other.palettePreviews;
 
@@ -62,12 +78,204 @@ Tileset &Tileset::operator=(const Tileset &other) {
     for (auto *metatile : other.m_metatiles) {
         m_metatiles.append(new Metatile(*metatile));
     }
+    clearPorytiles();
+    for (auto *porytile : other.m_porytiles) {
+        m_porytiles.append(new Metatile(*porytile));
+    }
 
     return *this;
 }
 
 Tileset::~Tileset() {
     clearMetatiles();
+    clearPorytiles();
+}
+
+QMap<QString, uint32_t> Tileset::behaviorNames;
+QMap<uint32_t, QString> Tileset::behaviorNamesInverse;
+
+// ---- CUSTOM ENGINE: porytiles -------------------------------------------------------------------------------------------------------
+
+void Tileset::clearPorytiles() {
+    qDeleteAll(m_porytiles);
+    m_porytiles.clear();
+}
+
+void Tileset::resizePorytiles(int count) {
+    count = qBound(0, count, maxMetatiles());   // (the same id space as the metatiles)
+    while (m_porytiles.length() > count)
+        delete m_porytiles.takeLast();
+    while (m_porytiles.length() < count)
+        m_porytiles.append(new Metatile(tilesPerPorytile()));
+}
+
+int Tileset::tilesPerBlock(BlockKind kind) {
+    return kind == BlockKind::Porytile ? tilesPerPorytile() : projectConfig.getNumTilesInMetatile();
+}
+
+Metatile* Tileset::getPorytile(int porytileId, Tileset *primaryTileset, Tileset *secondaryTileset) {
+    return const_cast<Metatile*>(getPorytile(porytileId, static_cast<const Tileset*>(primaryTileset), static_cast<const Tileset*>(secondaryTileset)));
+}
+
+const Metatile* Tileset::getPorytile(int porytileId, const Tileset *primaryTileset, const Tileset *secondaryTileset) {
+    const Tileset *tileset = Tileset::getMetatileTileset(porytileId, primaryTileset, secondaryTileset);
+    if (!tileset)
+        return nullptr;
+    return tileset->m_porytiles.value(Metatile::getIndexInTileset(porytileId), nullptr);
+}
+
+Metatile* Tileset::getBlock(BlockKind kind, int id, Tileset *primary, Tileset *secondary) {
+    return kind == BlockKind::Porytile ? getPorytile(id, primary, secondary) : getMetatile(id, primary, secondary);
+}
+
+const Metatile* Tileset::getBlock(BlockKind kind, int id, const Tileset *primary, const Tileset *secondary) {
+    return kind == BlockKind::Porytile ? getPorytile(id, primary, secondary) : getMetatile(id, primary, secondary);
+}
+
+bool Tileset::blockIsValid(BlockKind kind, uint16_t id, const Tileset *primary, const Tileset *secondary) {
+    return (primary && primary->containsBlockId(kind, id)) || (secondary && secondary->containsBlockId(kind, id));
+}
+
+QString Tileset::getOwnedBlockLabel(BlockKind kind, int id, Tileset *primary, Tileset *secondary) {
+    if (kind == BlockKind::Metatile)
+        return getOwnedMetatileLabel(id, primary, secondary);
+    const Tileset *tileset = getMetatileTileset(id, primary, secondary);
+    return tileset ? tileset->porytileLabels.value(id) : QString();
+}
+
+bool Tileset::setBlockLabel(BlockKind kind, int id, const QString &label, Tileset *primary, Tileset *secondary) {
+    if (kind == BlockKind::Metatile)
+        return setMetatileLabel(id, label, primary, secondary);
+    Tileset *tileset = getMetatileTileset(id, primary, secondary);
+    if (!tileset)
+        return false;
+    if (!label.isEmpty()) {
+        IdentifierValidator validator;
+        if (!validator.isValid(label))
+            return false;
+    }
+    if (label.isEmpty())
+        tileset->porytileLabels.remove(id);
+    else
+        tileset->porytileLabels[id] = label;
+    return true;
+}
+
+QString Tileset::porytilesPathFor(const QString &metatilesPath) {
+    if (metatilesPath.isEmpty())
+        return QString();
+    return QFileInfo(metatilesPath).dir().filePath(QStringLiteral("porytiles.json"));
+}
+
+// porytiles.json: { "count": N, "porytiles": [ { "id": <id>, "tiles": [raw, raw, raw, raw], "behavior": "MB_...", "label": "Gras" }, ... ] }.
+// Only porytiles that are not blank, or that have a behavior or a label, are listed. The behavior is stored by NAME (the numbers may be
+// renumbered in the project some day; a name that the project does not know is kept as a number). Missing file: kDefaultNumPorytiles blank
+// porytiles. Corrupt file: it is renamed to porytiles.json.corrupt-<time> (nothing is lost), the tileset gets blank porytiles, and the error
+// is kept in porytilesLoadError for the editor to show.
+bool Tileset::loadPorytiles() {
+    clearPorytiles();
+    this->porytilesLoadError.clear();
+    if (this->porytiles_path.isEmpty())
+        this->porytiles_path = porytilesPathFor(this->metatiles_path);
+    resizePorytiles(kDefaultNumPorytiles);
+
+    QFile file(this->porytiles_path);
+    if (!file.exists())
+        return true;
+    if (!file.open(QIODevice::ReadOnly)) {
+        this->porytilesLoadError = QString("Could not open '%1' for reading: %2").arg(this->porytiles_path, file.errorString());
+        logError(this->porytilesLoadError);
+        return false;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    file.close();
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        const QString aside = this->porytiles_path + QString(".corrupt-%1").arg(QDateTime::currentDateTime().toString("yyyyMMdd-hhmmss"));
+        QFile::rename(this->porytiles_path, aside);
+        this->porytilesLoadError = QString("'%1' is not valid JSON (%2). It was moved to '%3' and the tileset starts with blank porytiles.")
+                                       .arg(this->porytiles_path, parseError.errorString(), aside);
+        logError(this->porytilesLoadError);
+        return false;
+    }
+    const QJsonObject root = document.object();
+    const int count = qBound(1, root.value("count").toInt(kDefaultNumPorytiles), maxMetatiles());
+    resizePorytiles(count);
+    const QMap<QString, uint32_t> &behaviors = Tileset::behaviorNames;
+    int skipped = 0;
+    for (const QJsonValue &value : root.value("porytiles").toArray()) {
+        const QJsonObject entry = value.toObject();
+        const int id = entry.value("id").toInt(-1);
+        if (!containsBlockId(BlockKind::Porytile, static_cast<uint16_t>(qMax(0, id))) || id < 0) {
+            skipped++;
+            continue;
+        }
+        Metatile *porytile = m_porytiles.at(Metatile::getIndexInTileset(id));
+        const QJsonArray tiles = entry.value("tiles").toArray();
+        for (int i = 0; i < tilesPerPorytile() && i < tiles.size(); i++)
+            porytile->tiles[i] = Tile(static_cast<uint16_t>(tiles.at(i).toInt(0)));
+        const QJsonValue behavior = entry.value("behavior");
+        if (behavior.isString()) {
+            const QString name = behavior.toString();
+            bool isNumber = false;
+            const int number = name.toInt(&isNumber, 0);
+            porytile->setBehavior(behaviors.contains(name) ? static_cast<int>(behaviors.value(name)) : isNumber ? number : 0);
+        } else if (behavior.isDouble()) {
+            porytile->setBehavior(behavior.toInt());
+        }
+        const QString label = entry.value("label").toString();
+        if (!label.isEmpty())
+            this->porytileLabels[id] = label;
+    }
+    if (skipped)
+        logWarn(QString("'%1': %2 porytile entries with an id outside 0..%3 were ignored.").arg(this->porytiles_path).arg(skipped).arg(count - 1));
+    return true;
+}
+
+bool Tileset::savePorytiles() {
+    if (this->porytiles_path.isEmpty())
+        this->porytiles_path = porytilesPathFor(this->metatiles_path);
+    if (this->porytiles_path.isEmpty())
+        return true;   // (a tileset without a metatiles path: nothing to write next to)
+    const QMap<uint32_t, QString> &names = Tileset::behaviorNamesInverse;
+    QJsonArray entries;
+    for (int i = 0; i < m_porytiles.length(); i++) {
+        const Metatile *porytile = m_porytiles.at(i);
+        const int id = firstMetatileId() + i;
+        const QString label = this->porytileLabels.value(id);
+        bool blank = true;
+        QJsonArray tiles;
+        for (const Tile &tile : porytile->tiles) {
+            tiles.append(tile.rawValue());
+            if (tile.rawValue() != 0)
+                blank = false;
+        }
+        if (blank && porytile->behavior() == 0 && label.isEmpty())
+            continue;
+        QJsonObject entry;
+        entry.insert("id", id);
+        entry.insert("tiles", tiles);
+        if (porytile->behavior() != 0)
+            entry.insert("behavior", names.contains(porytile->behavior()) ? QJsonValue(names.value(porytile->behavior())) : QJsonValue(static_cast<int>(porytile->behavior())));
+        if (!label.isEmpty())
+            entry.insert("label", label);
+        entries.append(entry);
+    }
+    QJsonObject root;
+    root.insert("count", m_porytiles.length());
+    root.insert("porytiles", entries);
+
+    QSaveFile file(this->porytiles_path);   // (atomic: a crash never leaves a half-written file)
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        logError(QString("Could not open '%1' for writing: %2").arg(this->porytiles_path, file.errorString()));
+        return false;
+    }
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    if (!file.commit()) {
+        logError(QString("Could not write '%1': %2").arg(this->porytiles_path, file.errorString()));
+        return false;
+    }
+    return true;
 }
 
 void Tileset::clearMetatiles() {
@@ -91,7 +299,11 @@ void Tileset::resizeMetatiles(int newNumMetatiles) {
     }
     const int numTiles = projectConfig.getNumTilesInMetatile();
     while (m_metatiles.length() < newNumMetatiles) {
-        m_metatiles.append(new Metatile(numTiles));
+        Metatile *metatile = new Metatile(numTiles);
+        // (a new metatile is blank: nothing on its top layer, so its layer type is COVERED)
+        if (projectConfig.tripleLayerMetatilesEnabled && projectConfig.metatileLayerTypeMask)
+            metatile->setAttribute(Metatile::Attr::LayerType, Metatile::LayerType::Covered);
+        m_metatiles.append(metatile);
     }
 }
 
@@ -463,7 +675,25 @@ bool Tileset::loadMetatiles() {
     QByteArray data = file.readAll();
     int tilesPerMetatile = projectConfig.getNumTilesInMetatile();
     int bytesPerMetatile = Tile::sizeInBytes() * tilesPerMetatile;
+    // CUSTOM ENGINE: the layer count comes from NUM_TILES_PER_METATILE (8 or 12), so a metatiles.bin that was
+    // not converted together with that define would be read as garbage and then overwritten by the next
+    // Tileset Editor save. Refuse to load instead, with a clear message.
+    if (data.length() % bytesPerMetatile) {
+        logError(QString("'%1' is %2 bytes, which is not a multiple of %3 (%4 tiles per metatile). "
+                         "Was it converted together with NUM_TILES_PER_METATILE?")
+                    .arg(this->metatiles_path).arg(data.length()).arg(bytesPerMetatile).arg(tilesPerMetatile));
+        return false;
+    }
     int numMetatiles = data.length() / bytesPerMetatile;
+    QFileInfo attributesInfo(this->metatile_attrs_path);
+    if (attributesInfo.exists() && projectConfig.metatileAttributesSize > 0
+        && attributesInfo.size() / projectConfig.metatileAttributesSize != numMetatiles) {
+        logError(QString("'%1' holds %2 metatiles but '%3' holds %4 attribute entries. "
+                         "Were the two files converted together?")
+                    .arg(this->metatiles_path).arg(numMetatiles).arg(this->metatile_attrs_path)
+                    .arg(attributesInfo.size() / projectConfig.metatileAttributesSize));
+        return false;
+    }
     if (numMetatiles > maxMetatiles()) {
         logWarn(QString("%1 metatile count %2 exceeds limit of %3. Additional metatiles will be ignored.")
                         .arg(this->name)
@@ -680,7 +910,47 @@ bool Tileset::load() {
     if (!loadTilesImage()) success = false;
     if (!loadMetatiles()) success = false;
     if (!loadMetatileAttributes()) success = false;
+    loadPorytiles();   // (never fails the tileset)
+    enforceEmptyEntryZero();
     return success;
+}
+
+// CUSTOM ENGINE: entry 0 of the PRIMARY tileset -- metatile 0 and porytile 0 -- is the erase entry, the "delete id" of both maps: all of its tiles
+// are tile 0 with palette 0, it has no behavior and (for a porytile) no label. No tool ever writes to it (the Tileset Editor refuses, Write and
+// Pull never hand it out), and loading makes sure it is what it is supposed to be, so an empty layer or an empty field really draws nothing.
+// Returns true when something had to be emptied.
+bool Tileset::enforceEmptyEntryZero() {
+    if (this->is_secondary)
+        return false;
+    bool metatileChanged = false, porytileChanged = false;
+    if (!m_metatiles.isEmpty()) {
+        for (Tile &tile : m_metatiles.first()->tiles) {
+            if (tile.rawValue() != 0) {
+                tile = Tile();
+                metatileChanged = true;
+            }
+        }
+    }
+    if (!m_porytiles.isEmpty()) {
+        Metatile *porytile = m_porytiles.first();
+        for (Tile &tile : porytile->tiles) {
+            if (tile.rawValue() != 0) {
+                tile = Tile();
+                porytileChanged = true;
+            }
+        }
+        if (porytile->behavior() != 0) {
+            porytile->setBehavior(0);
+            porytileChanged = true;
+        }
+        if (this->porytileLabels.remove(0) > 0)
+            porytileChanged = true;
+    }
+    if (metatileChanged)
+        logWarn(QString("Metatile 0 of '%1' was not empty. It is the erase entry and is always empty, so its tiles were set to tile 0 (saved with the next tileset save).").arg(this->name));
+    if (porytileChanged)
+        logWarn(QString("Porytile 0 of '%1' was not empty. It is the erase entry and is always empty, so it was emptied (saved with the next tileset save).").arg(this->name));
+    return metatileChanged || porytileChanged;
 }
 
 // Because metatile labels are global (and handled by the project) we don't save them here.
@@ -690,6 +960,7 @@ bool Tileset::save() {
     if (!saveTilesImage()) success = false;
     if (!saveMetatiles()) success = false;
     if (!saveMetatileAttributes()) success = false;
+    if (!savePorytiles()) success = false;
     return success;
 }
 

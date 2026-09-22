@@ -338,19 +338,19 @@ void PorymapConfig::reset() {
     this->diveMapOpacity = 15;
     this->emergeMapOpacity = 15;
     this->collisionOpacity = 50;
+    this->behaviorOverlayOpacity = 75;
+    this->tilesetEditorBehaviorOpacity = 75;
     this->collisionZoom = 30;
     this->metatilesZoom = 30;
     this->tilesetEditorMetatilesZoom = 30;
     this->tilesetEditorTilesZoom = 30;
-    this->tilesetEditorLayerOrientation = Qt::Vertical;
+    this->prefabGalleryMainSize = 80;
     this->showPlayerView = false;
     this->showCursorTile = true;
     this->showBorder = true;
     this->showGrid = false;
     this->showTilesetEditorMetatileGrid = false;
-    this->showTilesetEditorLayerGrid = true;
-    this->showTilesetEditorDivider = false;
-    this->showTilesetEditorRawAttributes = false;
+    this->showTilesetEditorDivider = true;         // CUSTOM ENGINE: the thick red line between the primary and the secondary tileset: on to begin with (new key, see parse)
     this->showPaletteEditorUnusedColors = false;
     this->monitorFiles = true;
     this->tilesetCheckerboardFill = true;
@@ -438,6 +438,10 @@ void PorymapConfig::parseConfigKeyValue(QString key, QString value) {
         this->emergeMapOpacity = getConfigInteger(key, value, 10, 90, 15);
     } else if (key == "collision_opacity") {
         this->collisionOpacity = getConfigInteger(key, value, 0, 100, 50);
+    } else if (key == "behavior_overlay_opacity") {
+        this->behaviorOverlayOpacity = getConfigInteger(key, value, 0, 100, 75);
+    } else if (key == "tileset_editor_behavior_opacity") {
+        this->tilesetEditorBehaviorOpacity = getConfigInteger(key, value, 0, 100, 75);
     } else if (key == "tileset_editor_geometry") {
         this->tilesetEditorGeometry = bytesFromString(value);
     } else if (key == "tileset_editor_state") {
@@ -474,9 +478,8 @@ void PorymapConfig::parseConfigKeyValue(QString key, QString value) {
         this->tilesetEditorMetatilesZoom = getConfigInteger(key, value, 10, 100, 30);
     } else if (key == "tileset_editor_tiles_zoom") {
         this->tilesetEditorTilesZoom = getConfigInteger(key, value, 10, 100, 30);
-     } else if (key == "tileset_editor_layer_orientation") {
-        // Being explicit here to avoid casting out-of-range values.
-        this->tilesetEditorLayerOrientation = (getConfigInteger(key, value) == static_cast<int>(Qt::Horizontal)) ? Qt::Horizontal : Qt::Vertical;
+    } else if (key == "prefab_gallery_main_size") {
+        this->prefabGalleryMainSize = getConfigInteger(key, value, 48, 256, 80);
     } else if (key == "show_player_view") {
         this->showPlayerView = getConfigBool(key, value);
     } else if (key == "show_cursor_tile") {
@@ -487,12 +490,12 @@ void PorymapConfig::parseConfigKeyValue(QString key, QString value) {
         this->showGrid = getConfigBool(key, value);
     } else if (key == "show_tileset_editor_metatile_grid") {
         this->showTilesetEditorMetatileGrid = getConfigBool(key, value);
-    } else if (key == "show_tileset_editor_layer_grid") {
-        this->showTilesetEditorLayerGrid = getConfigBool(key, value);
     } else if (key == "show_tileset_editor_divider") {
+        // (the key of the old, thin white line: its stored value is the former default "off" and must not switch the new red line off)
+    } else if (key == "show_tileset_editor_primary_divider") {
         this->showTilesetEditorDivider = getConfigBool(key, value);
-    } else if (key == "show_tileset_editor_raw_attributes") {
-        this->showTilesetEditorRawAttributes = getConfigBool(key, value);
+    } else if (key == "show_tileset_editor_paint_behavior" || key == "show_tileset_editor_behavior_page_numbers") {
+        // (the keys of the old View > Display Behavior switch, which is gone: the Opacity slider decides how much of the numbers is seen)
     } else if (key == "show_palette_editor_unused_colors") {
         this->showPaletteEditorUnusedColors = getConfigBool(key, value);
     } else if (key == "monitor_files") {
@@ -629,19 +632,19 @@ QMap<QString, QString> PorymapConfig::getKeyValueMap() {
     map.insert("dive_map_opacity", QString::number(this->diveMapOpacity));
     map.insert("emerge_map_opacity", QString::number(this->emergeMapOpacity));
     map.insert("collision_opacity", QString::number(this->collisionOpacity));
+    map.insert("behavior_overlay_opacity", QString::number(this->behaviorOverlayOpacity));
+    map.insert("tileset_editor_behavior_opacity", QString::number(this->tilesetEditorBehaviorOpacity));
     map.insert("collision_zoom", QString::number(this->collisionZoom));
     map.insert("metatiles_zoom", QString::number(this->metatilesZoom));
     map.insert("tileset_editor_metatiles_zoom", QString::number(this->tilesetEditorMetatilesZoom));
     map.insert("tileset_editor_tiles_zoom", QString::number(this->tilesetEditorTilesZoom));
-    map.insert("tileset_editor_layer_orientation", QString::number(this->tilesetEditorLayerOrientation));
+    map.insert("prefab_gallery_main_size", QString::number(this->prefabGalleryMainSize));
     map.insert("show_player_view", this->showPlayerView ? "1" : "0");
     map.insert("show_cursor_tile", this->showCursorTile ? "1" : "0");
     map.insert("show_border", this->showBorder ? "1" : "0");
     map.insert("show_grid", this->showGrid ? "1" : "0");
     map.insert("show_tileset_editor_metatile_grid", this->showTilesetEditorMetatileGrid ? "1" : "0");
-    map.insert("show_tileset_editor_layer_grid", this->showTilesetEditorLayerGrid ? "1" : "0");
-    map.insert("show_tileset_editor_divider", this->showTilesetEditorDivider ? "1" : "0");
-    map.insert("show_tileset_editor_raw_attributes", this->showTilesetEditorRawAttributes ? "1" : "0");
+    map.insert("show_tileset_editor_primary_divider", this->showTilesetEditorDivider ? "1" : "0");
     map.insert("show_palette_editor_unused_colors", this->showPaletteEditorUnusedColors ? "1" : "0");
     map.insert("monitor_files", this->monitorFiles ? "1" : "0");
     map.insert("tileset_checkerboard_fill", this->tilesetCheckerboardFill ? "1" : "0");
@@ -995,8 +998,6 @@ void ProjectConfig::parseConfigKeyValue(QString key, QString value) {
         this->globalConstantsFilepaths = value.split(",", Qt::SkipEmptyParts);
     } else if (key == "prefabs_filepath") {
         this->prefabFilepath = value;
-    } else if (key == "prefabs_import_prompted") {
-        this->prefabImportPrompted = getConfigBool(key, value);
     } else if (key == "tilesets_have_callback") {
         this->tilesetsHaveCallback = getConfigBool(key, value);
     } else if (key == "tilesets_have_is_compressed") {
@@ -1109,7 +1110,6 @@ QMap<QString, QString> ProjectConfig::getKeyValueMap() {
     map.insert("default_primary_tileset", this->defaultPrimaryTileset);
     map.insert("default_secondary_tileset", this->defaultSecondaryTileset);
     map.insert("prefabs_filepath", this->prefabFilepath);
-    map.insert("prefabs_import_prompted", QString::number(this->prefabImportPrompted));
     for (auto it = this->filePaths.constKeyValueBegin(); it != this->filePaths.constKeyValueEnd(); ++it) {
         map.insert("path/"+defaultPaths[(*it).first].first, (*it).second);
     }

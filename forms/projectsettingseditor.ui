@@ -85,7 +85,7 @@
             <item>
              <widget class="QGroupBox" name="groupBox_Prefabs">
               <property name="title">
-               <string>Prefabs</string>
+               <string>Map Objects</string>
               </property>
               <layout class="QGridLayout" name="gridLayout_4">
                <item row="0" column="2">
@@ -99,20 +99,10 @@
                  </property>
                 </widget>
                </item>
-               <item row="1" column="0">
-                <widget class="QPushButton" name="button_ImportDefaultPrefabs">
-                 <property name="toolTip">
-                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Restore the data in the prefabs file to the version defaults. Will create a new file if one doesn't exist.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                 </property>
-                 <property name="text">
-                  <string>Import Defaults</string>
-                 </property>
-                </widget>
-               </item>
                <item row="0" column="1">
                 <widget class="QLineEdit" name="lineEdit_PrefabsPath">
                  <property name="toolTip">
-                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The file that will be used to populate the Prefabs tab&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The file that stores the Map Objects (used by the Tileset Editor and the Map Objects tab)&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                  </property>
                  <property name="placeholderText">
                   <string>prefabs.json</string>
@@ -122,7 +112,7 @@
                <item row="0" column="0">
                 <widget class="QLabel" name="label_PrefabsPath">
                  <property name="text">
-                  <string>Prefabs Path</string>
+                  <string>Map Objects Path</string>
                  </property>
                 </widget>
                </item>
@@ -132,7 +122,7 @@
             <item>
              <widget class="QGroupBox" name="groupBox_CollisionGraphics">
               <property name="title">
-               <string>Collision Graphics</string>
+               <string>Elevation Graphics</string>
               </property>
               <layout class="QGridLayout" name="gridLayout_7">
                <item row="1" column="6">
@@ -151,7 +141,7 @@
                <item row="0" column="1" colspan="6">
                 <widget class="QLineEdit" name="lineEdit_CollisionGraphics">
                  <property name="toolTip">
-                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The image sheet that will be used to represent elevation and collision on the Collision tab&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                  <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The image sheet that represents the elevation values on the Elevation tab: one column, one 16x16 icon per elevation (0-7)&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                  </property>
                  <property name="clearButtonEnabled">
                   <bool>true</bool>

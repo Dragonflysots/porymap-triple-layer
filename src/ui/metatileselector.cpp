@@ -1,6 +1,7 @@
 #include "imageproviders.h"
 #include "metatileselector.h"
 #include "project.h"
+#include "config.h"
 #include <QPainter>
 
 QSize MetatileSelector::getSelectionDimensions() const {
@@ -12,18 +13,32 @@ QSize MetatileSelector::getSelectionDimensions() const {
 int MetatileSelector::numPrimaryMetatilesRounded() const {
     if (!primaryTileset())
         return 0;
-    return Util::roundUpToMultiple(primaryTileset()->numMetatiles(), this->numMetatilesWide);
+    return Util::roundUpToMultiple(primaryTileset()->numBlocks(this->kind), this->numMetatilesWide);
 }
 
 void MetatileSelector::updateBasePixmap() {
-    this->basePixmap = QPixmap::fromImage(getMetatileSheetImage(this->layout, this->numMetatilesWide));
+    if (this->kind == BlockKind::Porytile)
+        this->basePixmap = QPixmap::fromImage(getBlockSheetImage(this->kind, primaryTileset(), secondaryTileset(), this->numMetatilesWide, {0}));
+    else
+        this->basePixmap = QPixmap::fromImage(getMetatileSheetImage(this->layout, this->numMetatilesWide));
 }
 
 void MetatileSelector::draw() {
     if (this->basePixmap.isNull())
         updateBasePixmap();
     setPixmap(this->basePixmap);
+    updateDivider();
     drawSelection();
+}
+
+// CUSTOM ENGINE: the line where the secondary tileset starts (the primary one is padded to whole rows, so the line lies between two rows).
+void MetatileSelector::updateDivider() {
+    if (!this->dividerItem)
+        this->dividerItem = new TilesetDividerItem(this);
+    const bool both = this->layout && this->layout->tileset_primary && this->layout->tileset_secondary
+                      && this->layout->tileset_primary->numBlocks(this->kind) > 0 && this->layout->tileset_secondary->numBlocks(this->kind) > 0;
+    this->dividerItem->place(both ? numPrimaryMetatilesRounded() / this->numMetatilesWide * this->cellHeight : 0, this->numMetatilesWide * this->cellWidth,
+                             both && porymapConfig.showTilesetEditorDivider);
 }
 
 void MetatileSelector::drawSelection() {
@@ -87,7 +102,7 @@ void MetatileSelector::setExternalSelection(int width, int height, const QList<u
         uint16_t elevation = collisions.at(i).second;
         this->selection.collisionItems.append(CollisionSelectionItem{true, collision, elevation});
         this->externalSelectedMetatiles.append(metatileId);
-        if (!this->layout->metatileIsValid(metatileId))
+        if (!blockIsValid(metatileId))
             metatileId = 0;
         this->selection.metatileItems.append(MetatileSelectionItem{true, metatileId});
     }
@@ -189,7 +204,7 @@ void MetatileSelector::updateExternalSelectedMetatiles() {
     this->selection.dimensions = QSize(this->externalSelectionWidth, this->externalSelectionHeight);
     for (int i = 0; i < this->externalSelectedMetatiles.count(); ++i) {
         uint16_t metatileId = this->externalSelectedMetatiles.at(i);
-        if (!this->layout->metatileIsValid(metatileId))
+        if (!blockIsValid(metatileId))
             metatileId = 0;
         this->selection.metatileItems.append(MetatileSelectionItem{true, metatileId});
     }
@@ -204,7 +219,7 @@ uint16_t MetatileSelector::posToMetatileId(int x, int y, bool *ok) const {
     if (ok) *ok = true;
     int index = y * this->numMetatilesWide + x;
     uint16_t metatileId = static_cast<uint16_t>(index);
-    if (primaryTileset() && primaryTileset()->containsMetatileId(metatileId)) {
+    if (primaryTileset() && primaryTileset()->containsBlockId(this->kind, metatileId)) {
         return metatileId;
     }
 
@@ -215,7 +230,7 @@ uint16_t MetatileSelector::posToMetatileId(int x, int y, bool *ok) const {
     int numPrimaryRounded = numPrimaryMetatilesRounded();
     int firstSecondaryRow = numPrimaryRounded / this->numMetatilesWide;
     metatileId = static_cast<uint16_t>(Project::getNumMetatilesPrimary() + index - numPrimaryRounded);
-    if (secondaryTileset() && secondaryTileset()->containsMetatileId(metatileId) && y >= firstSecondaryRow) {
+    if (secondaryTileset() && secondaryTileset()->containsBlockId(this->kind, metatileId) && y >= firstSecondaryRow) {
         return metatileId;
     }
 
@@ -224,12 +239,12 @@ uint16_t MetatileSelector::posToMetatileId(int x, int y, bool *ok) const {
 }
 
 QPoint MetatileSelector::metatileIdToPos(uint16_t metatileId, bool *ok) const {
-    if (primaryTileset() && primaryTileset()->containsMetatileId(metatileId)) {
+    if (primaryTileset() && primaryTileset()->containsBlockId(this->kind, metatileId)) {
         if (ok) *ok = true;
         int index = metatileId;
         return QPoint(index % this->numMetatilesWide, index / this->numMetatilesWide);
     }
-    if (secondaryTileset() && secondaryTileset()->containsMetatileId(metatileId)) {
+    if (secondaryTileset() && secondaryTileset()->containsBlockId(this->kind, metatileId)) {
         if (ok) *ok = true;
         int index = metatileId - Project::getNumMetatilesPrimary() + numPrimaryMetatilesRounded();
         return QPoint(index % this->numMetatilesWide, index / this->numMetatilesWide);

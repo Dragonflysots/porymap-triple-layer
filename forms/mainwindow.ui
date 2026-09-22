@@ -462,7 +462,7 @@
                       <item>
                        <widget class="QToolButton" name="toolButton_Fill">
                         <property name="toolTip">
-                         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Bucket Fill&lt;/p&gt;&lt;p&gt;Fills all similar tiles in a region with the selected metatiles or collision attributes&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Bucket Fill&lt;/p&gt;&lt;p&gt;Fills all similar tiles in a region with the selected metatiles or elevation&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                         </property>
                         <property name="text">
                          <string>Fill</string>
@@ -479,7 +479,7 @@
                       <item>
                        <widget class="QToolButton" name="toolButton_Dropper">
                         <property name="toolTip">
-                         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Eyedropper&lt;/p&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Click&lt;/span&gt; to select a metatile or collision attribute.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Eyedropper&lt;/p&gt;&lt;p&gt;&lt;span style=&quot; font-weight:600;&quot;&gt;Click&lt;/span&gt; to select a metatile or elevation.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                         </property>
                         <property name="text">
                          <string>Dropper</string>
@@ -574,6 +574,47 @@
                     </widget>
                    </item>
                    <item>
+                    <widget class="QPushButton" name="pushButton_PushToFinalmap">
+                     <property name="toolTip">
+                      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Write to Finalmap&lt;/p&gt;&lt;p&gt;Turns this map's porytiles into real metatiles and writes them into the map: every field gets one metatile made of its three porytiles and its behavior. Identical fields share one metatile, an existing metatile with the same tiles and behavior is reused, empty slots that nothing uses are filled, and only then is a tileset made longer. Elevations stay as they are. It asks first and it is one Undo step on the Finalmap tab.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                     </property>
+                     <property name="text">
+                      <string>Write to Finalmap</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="pushButton_PullToPorymap">
+                     <property name="toolTip">
+                      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Pull to Porymap&lt;/p&gt;&lt;p&gt;The other way round: reads this map's metatiles and rebuilds the porytile grid from them, so an existing map can be edited in the Porymap view. Every metatile is split into its three layers, matching porytiles are reused and missing ones created, and each field keeps the behavior its metatile has. This REPLACES the porytiles of this map. It asks first and it is one Undo step in the Porymap view.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                     </property>
+                     <property name="text">
+                      <string>Pull to Porymap</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QWidget" name="widget_PreMapLayers" native="true">
+                     <layout class="QHBoxLayout" name="horizontalLayout_PreMapLayers">
+                      <property name="spacing">
+                       <number>8</number>
+                      </property>
+                      <property name="leftMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="topMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="rightMargin">
+                       <number>0</number>
+                      </property>
+                      <property name="bottomMargin">
+                       <number>0</number>
+                      </property>
+                     </layout>
+                    </widget>
+                   </item>
+                   <item>
                     <spacer name="horizontalSpacer1">
                      <property name="orientation">
                       <enum>Qt::Orientation::Horizontal</enum>
@@ -591,6 +632,231 @@
                 </item>
                </layout>
               </widget>
+              <widget class="QWidget" name="widget_MapRightPanel">
+               <layout class="QVBoxLayout" name="verticalLayout_MapRightPanel" stretch="0,1">
+                <property name="spacing"><number>0</number></property>
+                <property name="leftMargin"><number>0</number></property>
+                <property name="topMargin"><number>0</number></property>
+                <property name="rightMargin"><number>0</number></property>
+                <property name="bottomMargin"><number>0</number></property>
+                <item>
+                 <widget class="QFrame" name="frame_MapHeader">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="frameShape"><enum>QFrame::Shape::NoFrame</enum></property>
+                  <layout class="QVBoxLayout" name="verticalLayout_MapHeader">
+                   <property name="spacing"><number>3</number></property>
+                   <property name="leftMargin"><number>6</number></property>
+                   <property name="topMargin"><number>6</number></property>
+                   <property name="rightMargin"><number>6</number></property>
+                   <property name="bottomMargin"><number>0</number></property>
+                   <item>
+<widget class="QFrame" name="frame_Tilesets">
+                       <property name="sizePolicy">
+                        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                         <horstretch>0</horstretch>
+                         <verstretch>0</verstretch>
+                        </sizepolicy>
+                       </property>
+                       <property name="frameShape">
+                        <enum>QFrame::Shape::StyledPanel</enum>
+                       </property>
+                       <property name="frameShadow">
+                        <enum>QFrame::Shadow::Raised</enum>
+                       </property>
+                       <layout class="QFormLayout" name="formLayout">
+                        <item row="1" column="0">
+                         <widget class="QLabel" name="label_PrimaryTileset">
+                          <property name="text">
+                           <string>Primary Tileset</string>
+                          </property>
+                         </widget>
+                        </item>
+                        <item row="1" column="1">
+                         <widget class="NoScrollComboBox" name="comboBox_PrimaryTileset">
+                          <property name="focusPolicy">
+                           <enum>Qt::FocusPolicy::StrongFocus</enum>
+                          </property>
+                          <property name="toolTip">
+                           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Primary Tileset&lt;/p&gt;&lt;p&gt;Defines the first 0x1000 (4096) metatiles available for the map.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                          </property>
+                          <property name="editable">
+                           <bool>true</bool>
+                          </property>
+                          <property name="minimumContentsLength">
+                           <number>0</number>
+                          </property>
+                         </widget>
+                        </item>
+                        <item row="2" column="0">
+                         <widget class="QLabel" name="label_SecondaryTileset">
+                          <property name="text">
+                           <string>Secondary Tileset</string>
+                          </property>
+                         </widget>
+                        </item>
+                        <item row="2" column="1">
+                         <widget class="NoScrollComboBox" name="comboBox_SecondaryTileset">
+                          <property name="focusPolicy">
+                           <enum>Qt::FocusPolicy::StrongFocus</enum>
+                          </property>
+                          <property name="toolTip">
+                           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Secondary Tileset&lt;/p&gt;&lt;p&gt;Defines the second 0x1000 (4096) metatiles available for the map (IDs 0x1000-0x1FFF).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                          </property>
+                          <property name="editable">
+                           <bool>true</bool>
+                          </property>
+                          <property name="minimumContentsLength">
+                           <number>0</number>
+                          </property>
+                         </widget>
+                        </item>
+                        <item row="0" column="1">
+                         <widget class="NoScrollComboBox" name="comboBox_LayoutSelector">
+                          <property name="minimumContentsLength">
+                           <number>0</number>
+                          </property>
+                         </widget>
+                        </item>
+                        <item row="0" column="0">
+                         <widget class="QLabel" name="label_Layout">
+                          <property name="text">
+                           <string>Layout</string>
+                          </property>
+                         </widget>
+                        </item>
+                       </layout>
+                      </widget>
+                   </item>
+                   <item>
+                          <widget class="QGroupBox" name="groupBox_BorderMetatiles">
+                           <property name="sizePolicy">
+                            <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                             <horstretch>0</horstretch>
+                             <verstretch>1</verstretch>
+                            </sizepolicy>
+                           </property>
+                           <property name="title">
+                            <string>Border</string>
+                           </property>
+                           <layout class="QHBoxLayout" name="horizontalLayout_5">
+                            <property name="spacing">
+                             <number>0</number>
+                            </property>
+                            <property name="leftMargin">
+                             <number>0</number>
+                            </property>
+                            <property name="topMargin">
+                             <number>0</number>
+                            </property>
+                            <property name="rightMargin">
+                             <number>0</number>
+                            </property>
+                            <property name="bottomMargin">
+                             <number>0</number>
+                            </property>
+                            <item>
+                             <widget class="QScrollArea" name="scrollArea_BorderMetatiles">
+                              <property name="sizePolicy">
+                               <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                                <horstretch>0</horstretch>
+                                <verstretch>0</verstretch>
+                               </sizepolicy>
+                              </property>
+                              <property name="frameShape">
+                               <enum>QFrame::Shape::NoFrame</enum>
+                              </property>
+                              <property name="frameShadow">
+                               <enum>QFrame::Shadow::Plain</enum>
+                              </property>
+                              <property name="widgetResizable">
+                               <bool>true</bool>
+                              </property>
+                              <widget class="QWidget" name="scrollAreaWidgetContents_BorderMetatiles">
+                               <property name="geometry">
+                                <rect>
+                                 <x>0</x>
+                                 <y>0</y>
+                                 <width>424</width>
+                                 <height>79</height>
+                                </rect>
+                               </property>
+                               <layout class="QHBoxLayout" name="horizontalLayout_12">
+                                <property name="spacing">
+                                 <number>0</number>
+                                </property>
+                                <property name="leftMargin">
+                                 <number>0</number>
+                                </property>
+                                <property name="topMargin">
+                                 <number>0</number>
+                                </property>
+                                <property name="rightMargin">
+                                 <number>0</number>
+                                </property>
+                                <property name="bottomMargin">
+                                 <number>0</number>
+                                </property>
+                                <item>
+                                 <spacer name="horizontalSpacer_12">
+                                  <property name="orientation">
+                                   <enum>Qt::Orientation::Horizontal</enum>
+                                  </property>
+                                  <property name="sizeHint" stdset="0">
+                                   <size>
+                                    <width>40</width>
+                                    <height>20</height>
+                                   </size>
+                                  </property>
+                                 </spacer>
+                                </item>
+                                <item>
+                                 <widget class="NoScrollGraphicsView" name="graphicsView_BorderMetatile">
+                                  <property name="sizePolicy">
+                                   <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+                                    <horstretch>0</horstretch>
+                                    <verstretch>0</verstretch>
+                                   </sizepolicy>
+                                  </property>
+                                  <property name="toolTip">
+                                   <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The border is a 2x2 metatile which is repeated outside of the map layout's boundary. Draw on this border area to modify it.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                                  </property>
+                                  <property name="verticalScrollBarPolicy">
+                                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+                                  </property>
+                                  <property name="horizontalScrollBarPolicy">
+                                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+                                  </property>
+                                 </widget>
+                                </item>
+                                <item>
+                                 <spacer name="horizontalSpacer_13">
+                                  <property name="orientation">
+                                   <enum>Qt::Orientation::Horizontal</enum>
+                                  </property>
+                                  <property name="sizeHint" stdset="0">
+                                   <size>
+                                    <width>40</width>
+                                    <height>20</height>
+                                   </size>
+                                  </property>
+                                 </spacer>
+                                </item>
+                               </layout>
+                              </widget>
+                             </widget>
+                            </item>
+                           </layout>
+                          </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item>
               <widget class="AdjustingStackedWidget" name="stackedWidget_MapEvents">
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Preferred" vsizetype="MinimumExpanding">
@@ -715,125 +981,6 @@
                           <property name="orientation">
                            <enum>Qt::Orientation::Vertical</enum>
                           </property>
-                          <widget class="QGroupBox" name="groupBox_BorderMetatiles">
-                           <property name="sizePolicy">
-                            <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-                             <horstretch>0</horstretch>
-                             <verstretch>1</verstretch>
-                            </sizepolicy>
-                           </property>
-                           <property name="title">
-                            <string>Border</string>
-                           </property>
-                           <layout class="QHBoxLayout" name="horizontalLayout_5">
-                            <property name="spacing">
-                             <number>0</number>
-                            </property>
-                            <property name="leftMargin">
-                             <number>0</number>
-                            </property>
-                            <property name="topMargin">
-                             <number>0</number>
-                            </property>
-                            <property name="rightMargin">
-                             <number>0</number>
-                            </property>
-                            <property name="bottomMargin">
-                             <number>0</number>
-                            </property>
-                            <item>
-                             <widget class="QScrollArea" name="scrollArea_BorderMetatiles">
-                              <property name="sizePolicy">
-                               <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-                                <horstretch>0</horstretch>
-                                <verstretch>0</verstretch>
-                               </sizepolicy>
-                              </property>
-                              <property name="frameShape">
-                               <enum>QFrame::Shape::NoFrame</enum>
-                              </property>
-                              <property name="frameShadow">
-                               <enum>QFrame::Shadow::Plain</enum>
-                              </property>
-                              <property name="widgetResizable">
-                               <bool>true</bool>
-                              </property>
-                              <widget class="QWidget" name="scrollAreaWidgetContents_BorderMetatiles">
-                               <property name="geometry">
-                                <rect>
-                                 <x>0</x>
-                                 <y>0</y>
-                                 <width>424</width>
-                                 <height>79</height>
-                                </rect>
-                               </property>
-                               <layout class="QHBoxLayout" name="horizontalLayout_12">
-                                <property name="spacing">
-                                 <number>0</number>
-                                </property>
-                                <property name="leftMargin">
-                                 <number>0</number>
-                                </property>
-                                <property name="topMargin">
-                                 <number>0</number>
-                                </property>
-                                <property name="rightMargin">
-                                 <number>0</number>
-                                </property>
-                                <property name="bottomMargin">
-                                 <number>0</number>
-                                </property>
-                                <item>
-                                 <spacer name="horizontalSpacer_12">
-                                  <property name="orientation">
-                                   <enum>Qt::Orientation::Horizontal</enum>
-                                  </property>
-                                  <property name="sizeHint" stdset="0">
-                                   <size>
-                                    <width>40</width>
-                                    <height>20</height>
-                                   </size>
-                                  </property>
-                                 </spacer>
-                                </item>
-                                <item>
-                                 <widget class="NoScrollGraphicsView" name="graphicsView_BorderMetatile">
-                                  <property name="sizePolicy">
-                                   <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
-                                    <horstretch>0</horstretch>
-                                    <verstretch>0</verstretch>
-                                   </sizepolicy>
-                                  </property>
-                                  <property name="toolTip">
-                                   <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The border is a 2x2 metatile which is repeated outside of the map layout's boundary. Draw on this border area to modify it.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                                  </property>
-                                  <property name="verticalScrollBarPolicy">
-                                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
-                                  </property>
-                                  <property name="horizontalScrollBarPolicy">
-                                   <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
-                                  </property>
-                                 </widget>
-                                </item>
-                                <item>
-                                 <spacer name="horizontalSpacer_13">
-                                  <property name="orientation">
-                                   <enum>Qt::Orientation::Horizontal</enum>
-                                  </property>
-                                  <property name="sizeHint" stdset="0">
-                                   <size>
-                                    <width>40</width>
-                                    <height>20</height>
-                                   </size>
-                                  </property>
-                                 </spacer>
-                                </item>
-                               </layout>
-                              </widget>
-                             </widget>
-                            </item>
-                           </layout>
-                          </widget>
                           <widget class="QGroupBox" name="groupBox_SelectedMetatiles">
                            <property name="sizePolicy">
                             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
@@ -1081,87 +1228,9 @@
                        </layout>
                       </widget>
                      </item>
-                     <item row="1" column="0">
-                      <widget class="QFrame" name="frame_Tilesets">
-                       <property name="sizePolicy">
-                        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                         <horstretch>0</horstretch>
-                         <verstretch>0</verstretch>
-                        </sizepolicy>
-                       </property>
-                       <property name="frameShape">
-                        <enum>QFrame::Shape::StyledPanel</enum>
-                       </property>
-                       <property name="frameShadow">
-                        <enum>QFrame::Shadow::Raised</enum>
-                       </property>
-                       <layout class="QFormLayout" name="formLayout">
-                        <item row="1" column="0">
-                         <widget class="QLabel" name="label_PrimaryTileset">
-                          <property name="text">
-                           <string>Primary Tileset</string>
-                          </property>
-                         </widget>
-                        </item>
-                        <item row="1" column="1">
-                         <widget class="NoScrollComboBox" name="comboBox_PrimaryTileset">
-                          <property name="focusPolicy">
-                           <enum>Qt::FocusPolicy::StrongFocus</enum>
-                          </property>
-                          <property name="toolTip">
-                           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Primary Tileset&lt;/p&gt;&lt;p&gt;Defines the first 0x200 metatiles available for the map.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                          </property>
-                          <property name="editable">
-                           <bool>true</bool>
-                          </property>
-                          <property name="minimumContentsLength">
-                           <number>0</number>
-                          </property>
-                         </widget>
-                        </item>
-                        <item row="2" column="0">
-                         <widget class="QLabel" name="label_SecondaryTileset">
-                          <property name="text">
-                           <string>Secondary Tileset</string>
-                          </property>
-                         </widget>
-                        </item>
-                        <item row="2" column="1">
-                         <widget class="NoScrollComboBox" name="comboBox_SecondaryTileset">
-                          <property name="focusPolicy">
-                           <enum>Qt::FocusPolicy::StrongFocus</enum>
-                          </property>
-                          <property name="toolTip">
-                           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Secondary Tileset&lt;/p&gt;&lt;p&gt;Defines the second 0x200 metatiles available for the map.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                          </property>
-                          <property name="editable">
-                           <bool>true</bool>
-                          </property>
-                          <property name="minimumContentsLength">
-                           <number>0</number>
-                          </property>
-                         </widget>
-                        </item>
-                        <item row="0" column="1">
-                         <widget class="NoScrollComboBox" name="comboBox_LayoutSelector">
-                          <property name="minimumContentsLength">
-                           <number>0</number>
-                          </property>
-                         </widget>
-                        </item>
-                        <item row="0" column="0">
-                         <widget class="QLabel" name="label_Layout">
-                          <property name="text">
-                           <string>Layout</string>
-                          </property>
-                         </widget>
-                        </item>
-                       </layout>
-                      </widget>
-                     </item>
                     </layout>
                    </widget>
-                   <widget class="QWidget" name="tab_collision">
+                   <widget class="QWidget" name="tab_elevation">
                     <property name="enabled">
                      <bool>true</bool>
                     </property>
@@ -1172,7 +1241,7 @@
                      </sizepolicy>
                     </property>
                     <attribute name="title">
-                     <string>Collision</string>
+                     <string>Elevation</string>
                     </attribute>
                     <layout class="QGridLayout" name="gridLayout_CollisionSelection">
                      <property name="sizeConstraint">
@@ -1250,8 +1319,8 @@
                            </property>
                            <property name="minimumSize">
                             <size>
-                             <width>64</width>
-                             <height>512</height>
+                             <width>34</width>
+                             <height>258</height>
                             </size>
                            </property>
                            <property name="verticalScrollBarPolicy">
@@ -1336,16 +1405,6 @@
                         <item row="0" column="1">
                          <widget class="QSpinBox" name="spinBox_SelectedElevation"/>
                         </item>
-                        <item row="1" column="0">
-                         <widget class="QLabel" name="label_17">
-                          <property name="text">
-                           <string>Collision</string>
-                          </property>
-                         </widget>
-                        </item>
-                        <item row="1" column="1">
-                         <widget class="QSpinBox" name="spinBox_SelectedCollision"/>
-                        </item>
                         <item row="0" column="0">
                          <widget class="QLabel" name="label_16">
                           <property name="text">
@@ -1354,114 +1413,16 @@
                          </widget>
                         </item>
                         <item row="0" column="2">
-                         <spacer name="horizontalSpacer_4">
-                          <property name="orientation">
-                           <enum>Qt::Orientation::Horizontal</enum>
+                         <widget class="QLabel" name="label_ElevationName">
+                          <property name="sizePolicy">
+                           <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                            <horstretch>0</horstretch>
+                            <verstretch>0</verstretch>
+                           </sizepolicy>
                           </property>
-                          <property name="sizeHint" stdset="0">
-                           <size>
-                            <width>40</width>
-                            <height>20</height>
-                           </size>
+                          <property name="text">
+                           <string/>
                           </property>
-                         </spacer>
-                        </item>
-                       </layout>
-                      </widget>
-                     </item>
-                    </layout>
-                   </widget>
-                   <widget class="QWidget" name="tab_prefabs">
-                    <property name="sizePolicy">
-                     <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-                      <horstretch>0</horstretch>
-                      <verstretch>0</verstretch>
-                     </sizepolicy>
-                    </property>
-                    <attribute name="title">
-                     <string>Prefabs</string>
-                    </attribute>
-                    <layout class="QVBoxLayout" name="verticalLayout_3">
-                     <item>
-                      <widget class="QPushButton" name="pushButton_CreatePrefab">
-                       <property name="sizePolicy">
-                        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-                         <horstretch>0</horstretch>
-                         <verstretch>0</verstretch>
-                        </sizepolicy>
-                       </property>
-                       <property name="text">
-                        <string>Create from Selection</string>
-                       </property>
-                       <property name="icon">
-                        <iconset resource="../resources/images.qrc">
-                         <normaloff>:/icons/add.ico</normaloff>:/icons/add.ico</iconset>
-                       </property>
-                       <property name="autoDefault">
-                        <bool>false</bool>
-                       </property>
-                       <property name="default">
-                        <bool>false</bool>
-                       </property>
-                       <property name="flat">
-                        <bool>false</bool>
-                       </property>
-                      </widget>
-                     </item>
-                     <item>
-                      <widget class="QGroupBox" name="groupBox_3">
-                       <property name="title">
-                        <string>Prefabs for Map's Tilesets</string>
-                       </property>
-                       <layout class="QVBoxLayout" name="verticalLayout_15">
-                        <item>
-                         <widget class="QScrollArea" name="scrollArea">
-                          <property name="frameShape">
-                           <enum>QFrame::Shape::NoFrame</enum>
-                          </property>
-                          <property name="widgetResizable">
-                           <bool>true</bool>
-                          </property>
-                          <widget class="QWidget" name="scrollAreaWidgetContents_Prefabs">
-                           <property name="geometry">
-                            <rect>
-                             <x>0</x>
-                             <y>0</y>
-                             <width>383</width>
-                             <height>744</height>
-                            </rect>
-                           </property>
-                           <layout class="QVBoxLayout" name="verticalLayout_14">
-                            <property name="leftMargin">
-                             <number>0</number>
-                            </property>
-                            <property name="topMargin">
-                             <number>0</number>
-                            </property>
-                            <property name="rightMargin">
-                             <number>0</number>
-                            </property>
-                            <property name="bottomMargin">
-                             <number>0</number>
-                            </property>
-                            <item>
-                             <widget class="QLabel" name="label_prefabHelp">
-                              <property name="text">
-                               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;No prefabs have been created for the currently-used tilesets. Create some by using the button above!&lt;/p&gt;&lt;p&gt;Prefabs are &amp;quot;prefabricated&amp;quot; metatile selections that are used for easy selecting of complicated map structures. For example, a useful prefab could be a building or tree formation, which would otherwise be annoying to paint with the regular metatile picker.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-                              </property>
-                              <property name="textFormat">
-                               <enum>Qt::TextFormat::RichText</enum>
-                              </property>
-                              <property name="alignment">
-                               <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
-                              </property>
-                              <property name="wordWrap">
-                               <bool>true</bool>
-                              </property>
-                             </widget>
-                            </item>
-                           </layout>
-                          </widget>
                          </widget>
                         </item>
                        </layout>
@@ -2183,6 +2144,219 @@
                  </item>
                 </layout>
                </widget>
+                             <widget class="QWidget" name="mapView_PorymapInfo">
+                <layout class="QVBoxLayout" name="verticalLayout_PorymapInfo">
+                 <property name="leftMargin"><number>3</number></property>
+                 <property name="topMargin"><number>3</number></property>
+                 <property name="rightMargin"><number>3</number></property>
+                 <property name="bottomMargin"><number>3</number></property>
+                 <item>
+                  <widget class="QTabWidget" name="porymapViewTab">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="minimumSize">
+                    <size>
+                     <width>156</width>
+                     <height>0</height>
+                    </size>
+                   </property>
+                   <property name="currentIndex">
+                    <number>0</number>
+                   </property>
+                   <widget class="QWidget" name="tab_porytiles">
+                     <attribute name="title">
+                      <string>Porytiles</string>
+                     </attribute>
+                     <layout class="QVBoxLayout" name="verticalLayout_Porytiles">
+                      <item>
+                       <widget class="QLabel" name="label_PorytilesHelp">
+                        <property name="text">
+                         <string>Left-click or drag a rectangle to choose the porytiles the pencil paints on the active layer. Right-click on the map picks from the active layer. Porytile 0 (top left) is the default fill of every layer: painting it erases.</string>
+                        </property>
+                        <property name="wordWrap">
+                         <bool>true</bool>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QScrollArea" name="scrollArea_Porytiles">
+                        <property name="widgetResizable">
+                         <bool>true</bool>
+                        </property>
+                        <property name="alignment">
+                         <set>Qt::AlignmentFlag::AlignHCenter|Qt::AlignmentFlag::AlignTop</set>
+                        </property>
+                        <widget class="QWidget" name="scrollAreaWidgetContents_Porytiles">
+                         <layout class="QGridLayout" name="gridLayout_Porytiles">
+                          <item row="0" column="0">
+                           <widget class="NoScrollGraphicsView" name="graphicsView_Porytiles">
+                            <property name="sizePolicy">
+                             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                              <horstretch>0</horstretch>
+                              <verstretch>0</verstretch>
+                             </sizepolicy>
+                            </property>
+                            <property name="frameShape">
+                             <enum>QFrame::Shape::NoFrame</enum>
+                            </property>
+                            <property name="verticalScrollBarPolicy">
+                             <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+                            </property>
+                            <property name="horizontalScrollBarPolicy">
+                             <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+                            </property>
+                           </widget>
+                          </item>
+                          <item row="1" column="0">
+                           <spacer name="verticalSpacer_Porytiles">
+                            <property name="orientation">
+                             <enum>Qt::Orientation::Vertical</enum>
+                            </property>
+                            <property name="sizeHint" stdset="0">
+                             <size>
+                              <width>20</width>
+                              <height>40</height>
+                             </size>
+                            </property>
+                           </spacer>
+                          </item>
+                         </layout>
+                        </widget>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QSlider" name="horizontalSlider_PorytilesZoom">
+                        <property name="toolTip">
+                         <string>Zoom of the porytile palette</string>
+                        </property>
+                        <property name="minimum">
+                         <number>10</number>
+                        </property>
+                        <property name="maximum">
+                         <number>90</number>
+                        </property>
+                        <property name="value">
+                         <number>30</number>
+                        </property>
+                        <property name="orientation">
+                         <enum>Qt::Orientation::Horizontal</enum>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                    <widget class="QWidget" name="tab_behaviors">
+                    <property name="sizePolicy">
+                     <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                     </sizepolicy>
+                    </property>
+                    <attribute name="title">
+                     <string>Behaviors</string>
+                    </attribute>
+                    <layout class="QVBoxLayout" name="verticalLayout_Behaviors">
+                     <property name="leftMargin">
+                      <number>3</number>
+                     </property>
+                     <property name="topMargin">
+                      <number>3</number>
+                     </property>
+                     <property name="rightMargin">
+                      <number>3</number>
+                     </property>
+                     <property name="bottomMargin">
+                      <number>3</number>
+                     </property>
+                     <item>
+                      <widget class="QLabel" name="label_BehaviorsHelp">
+                       <property name="text">
+                        <string>Every field shows its behavior as a hex ID: the one placed here (white frame), otherwise the behavior of its porytiles (topmost wins). Choose a behavior below and place it with the pencil (drag paints a line), the bucket fills, right-click picks. Auto takes a placement away.</string>
+                       </property>
+                       <property name="wordWrap">
+                        <bool>true</bool>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <layout class="QHBoxLayout" name="horizontalLayout_BehaviorsOpacity">
+                       <item>
+                        <widget class="QLabel" name="label_BehaviorsOpacity">
+                         <property name="text">
+                          <string>Opacity</string>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QSlider" name="horizontalSlider_BehaviorsOpacity">
+                         <property name="toolTip">
+                          <string>How strongly the behavior numbers (their colour and digits) cover the map: low to see the porytiles below, high to read the numbers clearly.</string>
+                         </property>
+                         <property name="minimum">
+                          <number>0</number>
+                         </property>
+                         <property name="maximum">
+                          <number>100</number>
+                         </property>
+                         <property name="value">
+                          <number>75</number>
+                         </property>
+                         <property name="orientation">
+                          <enum>Qt::Orientation::Horizontal</enum>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QLabel" name="label_BehaviorsOpacityValue">
+                         <property name="minimumSize">
+                          <size>
+                           <width>38</width>
+                           <height>0</height>
+                          </size>
+                         </property>
+                         <property name="text">
+                          <string>75%</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                     <item>
+                      <widget class="QLineEdit" name="lineEdit_BehaviorsFilter">
+                       <property name="toolTip">
+                        <string>Narrows the list of behaviors down. Type part of a name (grass) or a hex ID (1A or 0x1A).</string>
+                       </property>
+                       <property name="placeholderText">
+                        <string>Filter the list: name or hex ID (grass, 1A)</string>
+                       </property>
+                       <property name="clearButtonEnabled">
+                        <bool>true</bool>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QListWidget" name="listWidget_Behaviors">
+                       <property name="toolTip">
+                        <string>The behavior the pencil places. Auto: the field takes the behavior of its porytiles again.</string>
+                       </property>
+                       <property name="selectionMode">
+                        <enum>QAbstractItemView::SelectionMode::SingleSelection</enum>
+                       </property>
+                      </widget>
+                     </item>
+                    </layout>
+                   </widget>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+</widget>
+                </item>
+               </layout>
               </widget>
              </widget>
             </item>

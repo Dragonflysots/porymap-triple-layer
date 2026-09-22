@@ -10,6 +10,11 @@ void MapView::moveEvent(QMoveEvent *event) {
 }
 
 void MapView::keyPressEvent(QKeyEvent *event) {
+    // Porymap view: Delete/Backspace, the arrows and Esc act on the selected Map Objects
+    if (editor && editor->isPorymapView() && editor->preMapItem && editor->preMapItem->handleKey(event)) {
+        event->accept();
+        return;
+    }
     if (editor && (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace)) {
         editor->deleteSelectedEvents();
     } else {
@@ -28,8 +33,9 @@ void MapView::drawForeground(QPainter *painter, const QRectF&) {
 
     // Draw elements of the map view that should always render on top of anything added by the user with the scripting API.
 
-    // Draw map grid
-    if (editor->mapGrid && editor->mapGrid->isVisible()) {
+    // Draw map grid (the Porymap view always shows the fixed 16x16 grid its Map Objects snap to)
+    QGraphicsItemGroup *grid = editor->isPorymapView() ? editor->porymapGrid : editor->mapGrid;
+    if (grid && grid->isVisible()) {
         painter->save();
         if (editor->layout) {
             // We're clipping here to hide parts of the grid that are outside the map.
@@ -37,7 +43,7 @@ void MapView::drawForeground(QPainter *painter, const QRectF&) {
             painter->setClipping(true);
             painter->setClipRect(mapRect);
         }
-        for (auto item : editor->mapGrid->childItems())
+        for (auto item : grid->childItems())
             item->paint(painter, &option, this);
         painter->restore();
     }

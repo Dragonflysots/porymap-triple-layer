@@ -65,7 +65,7 @@ export function onMainTabChanged(oldTab, newTab) {
 }
 
 // Called when the selected tab in the map view tab bar is changed.
-// Tabs are indexed from left to right, starting at 0 (0: Metatiles, 1: Collision, 2: Prefabs).
+// Tabs are indexed from left to right, starting at 0 (0: Metatiles, 1: Elevation, 2: Behaviors, 3: Map Objects).
 export function onMapViewTabChanged(oldTab, newTab) {
 
 }

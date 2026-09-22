@@ -3,8 +3,11 @@
 #define MAINWINDOW_H
 
 #include <QString>
+#include <functional>
 #include <QModelIndex>
 #include <QMainWindow>
+#include <QToolButton>
+#include <QCheckBox>
 #include <QStandardItemModel>
 #include <QGraphicsPixmapItem>
 #include <QGraphicsItemGroup>
@@ -44,6 +47,7 @@
 
 namespace Ui {
 class MainWindow;
+class QDialog;
 }
 
 class MainWindow : public QMainWindow
@@ -59,6 +63,21 @@ public:
     MainWindow & operator = (const MainWindow &) = delete;
 
     void initialize();
+
+    // CUSTOM ENGINE: the confirmation of Write to Finalmap / Pull to Porymap, replaced by the headless tests
+    // (they return QMessageBox::Yes / No instead of opening a modal dialog).
+    static std::function<int()> pushToFinalmapPrompt;
+    static std::function<int()> pullToPorymapPrompt;
+    static QString lastPullQuestion;   // the text the last Pull asked (tests read it; the user sees it in the dialog)
+    // CUSTOM ENGINE: the eraser. Porymap tab: "Clear Layers" -- a window asks WHAT to clear, then a question asks once more. Finalmap tab: "Clean the
+    // Map" -- one question. The tests replace the windows: the chooser returns the parts (PreMapClearCommand::Part bits, 0 = cancelled), the prompts
+    // return QMessageBox::Yes / No; `lastEraserQuestion` is the text of the last question.
+    static std::function<int()> clearLayersChooser;
+    static std::function<int()> clearLayersPrompt;
+    static std::function<int()> cleanMapPrompt;
+    static QString lastEraserQuestion;
+    static std::function<int(QDialog *)> clearLayersDialogDriver;   // demo recordings / tests: drives the Clear Layers window without a modal loop (returns QDialog::Accepted / Rejected)
+    static QString lastPushQuestion;                                // the text the last Write to Finalmap asked (the recordings show it)
 
     Q_INVOKABLE void setPrimaryTileset(const QString &tileset);
     Q_INVOKABLE void setSecondaryTileset(const QString &tileset);
@@ -183,6 +202,16 @@ public:
 public slots:
     void on_mainTabBar_tabBarClicked(int index);
     void on_mapViewTab_tabBarClicked(int index);
+    void on_porymapViewTab_tabBarClicked(int index);
+    // CUSTOM ENGINE: the two conversions between the Porymap view and the Finalmap (see core/maptransfer.h). Both ask first;
+    // the two hooks replace that question in the headless tests (they return QMessageBox::Yes / No).
+    void on_pushButton_PushToFinalmap_clicked();
+    void on_pushButton_PullToPorymap_clicked();
+    // CUSTOM ENGINE: the Behaviors tab of the Porymap view: the list is the brush of its pencil, the filter narrows it, the eyedropper selects in it.
+    void on_listWidget_Behaviors_currentRowChanged(int row);
+    void on_lineEdit_BehaviorsFilter_textChanged(const QString &text);
+    void on_horizontalSlider_BehaviorsOpacity_valueChanged(int value);
+    void selectBehaviorInList(uint16_t stored, uint32_t shown);
     void onWarpBehaviorWarningClicked();
     void clearOverlay();
 
@@ -259,6 +288,7 @@ private slots:
     void on_button_OpenDiveMap_clicked();
     void on_button_OpenEmergeMap_clicked();
     void on_pushButton_ChangeDimensions_clicked();
+    void applyLayoutResize(const QMargins &result, const QSize &borderResult);
 
     void resetMapViewScale();
 
@@ -291,9 +321,7 @@ private slots:
     void on_pushButton_SummaryChart_clicked();
     void on_pushButton_ConfigureEncountersJSON_clicked();
     void on_toolButton_WildMonSearch_clicked();
-    void on_pushButton_CreatePrefab_clicked();
     void on_spinBox_SelectedElevation_valueChanged(int elevation);
-    void on_spinBox_SelectedCollision_valueChanged(int collision);
     void on_actionRegion_Map_Editor_triggered();
     void on_actionPreferences_triggered();
     void on_actionOpen_Manual_triggered();
@@ -315,6 +343,18 @@ signals:
     void layoutOpened(Layout*);
 
 private:
+    QToolButton *layerSelectButtons[3] = { nullptr, nullptr, nullptr }; // CUSTOM ENGINE: the 'active layer' buttons (Bottom / Middle / Top)
+    QToolButton *layerEyeButtons[3] = { nullptr, nullptr, nullptr };  // CUSTOM ENGINE: per-layer eye toggles (live inside widget_PreMapLayers)
+    // CUSTOM ENGINE: the Porymap and the Finalmap are ONE top-level tab, "Maps", with the two as its sub-tabs. The logical tabs stay what they were
+    // (mainTabBar keeps all six, every existing call works unchanged); what the user sees is `topTabBar` (Maps | Events | Header | Connections |
+    // Wild Pokemon) and, only while Maps is showing, mainTabBar cut down to its two map tabs as the second row.
+    QTabBar *topTabBar = nullptr;
+    int lastMapsTab = 1;   // MainTab::Map: the sub-tab the Maps tab comes back to (the app starts on the Finalmap)
+    void initTopTabBar();
+    void syncTopTabBar();
+    QToolButton *eraserButton = nullptr;                              // CUSTOM ENGINE: the eraser next to the layer bar (only on the Porymap and Finalmap tabs)
+    QToolButton *layerViewButtons[3] = { nullptr, nullptr, nullptr };  // CUSTOM ENGINE: the Finalmap tab's version: eye and name in ONE toggle (show / hide that layer of the Finalmap view)
+    QCheckBox *layerAlphaChecks[3] = { nullptr, nullptr, nullptr };   // CUSTOM ENGINE: per-layer Alpha Channel flags
     QLabel *label_MapRulerStatus = nullptr;
     QPointer<TilesetEditor> tilesetEditor = nullptr;
     QPointer<RegionMapEditor> regionMapEditor = nullptr;
@@ -380,6 +420,14 @@ private:
     void refreshMapScene();
     void refreshMetatileViews();
     void refreshCollisionSelector();
+    void refreshBehaviorList();
+    bool transferPreconditionsOk(const QString &what);   // CUSTOM ENGINE: guards of Write to Finalmap / Pull to Porymap
+    void updateTransferButtons();                        // Write to Finalmap only on the Porymap tab, Pull to Porymap only on the Finalmap tab
+    void onEraserClicked();                              // CUSTOM ENGINE: the eraser button: Clear Layers (Porymap tab) / Clean the Map (Finalmap tab)
+    void clearPorymapLayers();
+    void cleanFinalmap();
+    int askLayersToClear();                              // the window that asks what to clear (0 = cancelled)
+    void onTilesetsTransferred();
     void setLayoutOnlyMode(bool layoutOnly);
 
     bool isInvalidProject(Project *project);
@@ -402,6 +450,10 @@ private:
     void scrollMapListToCurrentLayout(MapTree *list);
     void scrollCurrentMapListToItem(const QString &itemName, bool expandItem = true);
     void showFileWatcherWarning();
+    void syncPreMapLayerControls();
+    void redrawPorytileSelector();   // CUSTOM ENGINE: the Porymap view's palette
+    void on_horizontalSlider_PorytilesZoom_valueChanged(int value);
+    void updateLayerBarEnabled();
     bool openProject(QString dir, bool initial = false);
     bool closeProject();
     void showRecentError(const QString &baseMessage);
@@ -479,7 +531,8 @@ private:
 // These are namespaced in a struct to avoid colliding with e.g. class Map.
 struct MainTab {
     enum {
-        Map,
+        Porymap, // CUSTOM ENGINE: the design view (Map Objects on 3 layers); the Finalmap is generated from it
+        Map,     // CUSTOM ENGINE: this is the Finalmap, the real generated map, edited like in original Porymap
         Events,
         Header,
         Connections,
@@ -487,11 +540,19 @@ struct MainTab {
     };
 };
 
+// Right-hand tabs of the Finalmap
 struct MapViewTab {
     enum {
         Metatiles,
-        Collision,
-        Prefabs,
+        Elevation, // CUSTOM ENGINE: was "Collision" (no collision bits any more, 8 elevation values)
+    };
+};
+
+// CUSTOM ENGINE: right-hand tabs of the Porymap (design) view
+struct PorymapViewTab {
+    enum {
+        MapObjects,
+        Behaviors,
     };
 };
 
