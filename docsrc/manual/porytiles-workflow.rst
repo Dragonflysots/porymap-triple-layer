@@ -27,8 +27,8 @@ Concepts
 
 Porytile
     A single-layer, 2x2-tile building block, similar to a metatile but for exactly one of the three layers. Lives in
-    ``porytiles.json`` next to a tileset's ``metatiles.bin``. Porytile 0 is the erase id (always blank, never
-    editable), exactly like metatile 0.
+    ``porytiles.json`` next to a tileset's ``metatiles.bin``. Porytile 0 (like metatile 0) is an ordinary entry —
+    paint it, give it a behavior or a label, just like any other id.
 
 Porymap view
     The design surface where you paint porytiles onto three layers — **Bottom**, **Middle**, **Top** — of a layout.
@@ -74,8 +74,9 @@ Painting on the Porymap view
         selection to what fits.
     * - Eyedropper
       - Right-click picks the porytile under the cursor on the active layer; right-drag picks a block.
-    * - Erase
-      - Paint porytile 0 (top-left of the palette). No mouse button erases on its own.
+    * - Reset a field
+      - Paint porytile 0 (top-left of the palette) — whatever art it holds is what a reset field shows. No mouse
+        button clears a field on its own.
     * - Bucket
       - Left-click fills the contiguous area of matching porytiles.
     * - Pointer

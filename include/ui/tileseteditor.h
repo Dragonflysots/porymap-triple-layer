@@ -225,9 +225,6 @@ private:
     QString &clipboardLabel() { return kind() == BlockKind::Porytile ? this->copiedPorytileLabel : this->copiedMetatileLabel; }
     void initKindTabs();
     void onKindTabChanged(int index);
-    // Entry 0 (metatile 0 / porytile 0) is the erase entry of the maps: always empty, never edited. False (with a message) when `ids` contains it.
-    bool allowEntryZero(const QSet<uint16_t> &ids);
-    void refuseEntryZero();
     void ensureMetatileVisible(uint16_t metatileId);
     void commitMetatileChange(Metatile * prevMetatile);
     void commitMetatileAndLabelChange(Metatile * prevMetatile, QString prevLabel, MetatileHistoryItem::Stack stack = MetatileHistoryItem::Stack::Paint);

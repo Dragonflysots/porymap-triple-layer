@@ -35,7 +35,7 @@ pre-fork Porymap project setting (`Project Settings > Enable triple layer metati
 | File | What it holds | Written by |
 |---|---|---|
 | `data/layers/<layoutId>/layers.json` | The Porymap view of one layout: a grid of porytile ids per layer (Bottom/Middle/Top), per-layer alpha flags, and per-field behaviors. Written after **every** edit — it is not a save-on-demand file, it behaves like autosave. | `PreMap` (`src/core/premap.cpp`) |
-| `<tileset dir>/porytiles.json` (next to `metatiles.bin`) | The porytiles of one tileset: `{count, porytiles: [{id, tiles: [4 raw tile values], behavior, label}]}`. Never read by the game; porytile 0 is the fixed erase id, exactly like metatile 0. | `Tileset` (`src/core/tileset.cpp`, `Tileset::porytilesPathFor`) |
+| `<tileset dir>/porytiles.json` (next to `metatiles.bin`) | The porytiles of one tileset: `{count, porytiles: [{id, tiles: [4 raw tile values], behavior, label}]}`. Never read by the game. | `Tileset` (`src/core/tileset.cpp`, `Tileset::porytilesPathFor`) |
 | `metatiles.bin`, `map.bin`, `metatile_attributes.bin` | The real, game-facing data. Unchanged format — this fork does not touch how metatiles/maps are serialized, only how you can arrive at their contents. | vanilla Porymap code paths |
 
 `PreMap` (`include/core/premap.h`, `src/core/premap.cpp`) is the in-memory + on-disk model of one layout's Porymap
@@ -93,8 +93,8 @@ Metatiles sheets support:
 - Direct painting on the sheet with a `TileBrush` (`src/core/tilebrush.cpp`) picked from the source tile sheet
   (metatiles) or dragged as a block selection (porytiles), with per-stroke Undo grouping.
 - A layer bar (metatiles only — porytiles are single-layer by definition).
-- Selection framing, cut/copy/paste, entry-0 protection (metatile 0 / porytile 0 can never be edited — see
-  `allowEntryZero` / `refuseEntryZero`).
+- Selection framing, cut/copy/paste. Entry 0 (metatile 0 / porytile 0) is an ordinary entry, editable like any
+  other — see "Entry 0" below; there is no special-cased id anywhere in this editor.
 - A behavior page: coloured hex numbers with an opacity slider, a filter (by behavior or by label, with
   crossed-out marks for filtered-out entries), numbered labels.
 - Four independent Undo histories (`paintHistory`, `behaviorHistory`, `porytilePaintHistory`,
@@ -108,6 +108,52 @@ Metatiles sheets support:
 `Project` and `Tileset` code (`src/project.cpp`, `src/core/tileset.cpp`) load/save `porytiles.json` alongside
 `metatiles.bin`, resolve behavior names for it (`Tileset::behaviorNames`), and handle a corrupt file by renaming it
 aside (`*.corrupt-<time>`) and starting from a blank set rather than failing to open the project.
+
+## Entry 0
+
+Until 2026-09-22, metatile 0 and porytile 0 of the primary tileset were treated as a fixed "erase id": always
+blanked on load, refused by every Tileset Editor edit, and excluded from Write/Pull's matching and free-slot logic.
+This was removed — **entry 0 is now an ordinary entry**, editable and eligible like any other id, both in the
+Tileset Editor and in `MapTransfer`. Reasoning: a map field is never truly "empty" — it always shows *some*
+metatile — so pinning that concept to a specific id was an arbitrary tool convention, and a real project (this
+fork's own, checked directly: 117 of 126 registered tilesets, 93%) commonly has legitimate art at id 0 already.
+`Tileset::load()` used to force-blank it every time a project opened, which would have silently destroyed that art
+the first time such a tileset was saved through the Tileset Editor — nothing had been lost when this was fixed
+(confirmed by direct inspection of `metatiles.bin`; no tileset had been saved through Porymap yet), but it was an
+active, unnoticed risk.
+
+What changed, concretely:
+- `Tileset::load()` (`src/core/tileset.cpp`) no longer calls anything to blank entry 0 — loading leaves it exactly
+  as the file has it.
+- `TilesetEditor` (`src/ui/tileseteditor.cpp`) has no `id == 0` special case left in any editing path (paint,
+  Delete, Clear Field, cut/copy/paste, swap, behavior, label) — every one of those functions just operates on
+  whatever id it's given.
+- `MapTransfer::Allocator` (`src/core/maptransfer.cpp`) lost its `keepIdZero` flag: id 0 is scanned into
+  `candidates` (match keys) and `freePrimary`/`freeSecondary` (empty-slot pool) exactly like every other id, purely
+  on its own content (`allTilesZero`, unlabelled, unused). `checkWritesOnlyTouchEmptySlots()` no longer refuses a
+  write that targets id 0, and `verifyPull()` no longer requires porytile 0 specifically to stay empty.
+- `MapTransfer::planPull` had a second, independent place id 0 was hardcoded: a metatile layer with every tile id 0
+  ("blank") used to be assigned `porytileId = 0` directly, without going through the allocator at all. That's gone
+  too — a blank layer now computes the same `tilesKey` as any other content and goes through
+  `allocator.lookupExisting` / `allocator.allocate` like everything else. In practice this still lands on id 0 most
+  of the time (it's scanned first, so it's the preferred match/free-slot for blank content when it truly is blank),
+  but it's no longer assumed — if entry 0 already holds real art, a blank layer finds or creates a *different*
+  blank porytile instead, and entry 0's art is left alone. **If you're grepping for the old mechanism**: there is no
+  `enforceEmptyEntryZero`, `allowEntryZero`, `refuseEntryZero`, or `keepIdZero` left anywhere in this codebase —
+  those names only exist in git history now.
+
+What did **not** need to change: the rendering code (`PreMapPixmapItem::porytileImage`, the Finalmap's metatile
+drawing) never special-cased id 0 to begin with — it already drew whatever art a block had, so a newly-unblanked
+entry 0 with real content just renders correctly with no changes there. Resetting a field still means painting
+porytile 0 / metatile 0 onto it (unchanged) — what that shows now depends on what entry 0 actually holds, which the
+project owner explicitly decided is fine ("could be grass, could be black, doesn't matter").
+
+Verified against this fork's own live project (a 60x80 real map, two real tilesets): `Pull to Porymap` reproduces
+the Finalmap pixel-for-pixel (0 differing pixels), a `Write to Finalmap` immediately after changes nothing (957
+distinct fields, 957 reused, 0 written), and porytile 0 is used as an ordinary id on thousands of fields throughout
+— see the harness's `PU` scenario (`UITEST_REAL=1 UITEST_ONLY=PU`, real data only, never writes to the real
+project). The synthetic scenario suite covers the edit paths and the allocator specifically: `PY7`, `PF4c`, `PF8`,
+`PF9`, `PF10` in `tools/porymap-uitest/`.
 
 ## Files removed
 

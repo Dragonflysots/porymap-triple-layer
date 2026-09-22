@@ -297,19 +297,6 @@ void TilesetEditor::onKindTabChanged(int) {
         this->ui->statusbar->showMessage(this->secondaryTileset->porytilesLoadError, 15000);
 }
 
-// Entry 0 -- metatile 0 and porytile 0 -- is the erase entry of the maps (the "delete id"): all of its tiles are tile 0 with palette 0, and it stays
-// like that. Every way of changing a block asks here first (or refuses by itself); loading the tileset empties it should it ever not be.
-bool TilesetEditor::allowEntryZero(const QSet<uint16_t> &ids) {
-    if (!ids.contains(0))
-        return true;
-    refuseEntryZero();
-    return false;
-}
-
-void TilesetEditor::refuseEntryZero() {
-    this->ui->statusbar->showMessage(QStringLiteral("Entry 0 is the erase entry of the maps: it is always empty and is never edited."), 6000);
-}
-
 // The main window calls this on every map switch. A map that uses the tileset pair this editor already shows changes nothing about the tilesets:
 // the editor keeps its copies, its unsaved edits AND its undo history (also right after a Save). Only a different pair goes through updateTilesets().
 void TilesetEditor::update(Layout *layout, QString primaryTilesetLabel, QString secondaryTilesetLabel) {
@@ -758,12 +745,7 @@ void TilesetEditor::assignBehavior(int value) {
         return;
     auto *step = new MetatileHistoryItem();
     QSet<uint16_t> changed;
-    bool skippedZero = false;
     for (uint16_t id : ids) {
-        if (id == 0) {   // (the erase entry has no behavior and never gets one)
-            skippedZero = true;
-            continue;
-        }
         Metatile *metatile = block(id);
         if (!metatile || metatile->behavior() == static_cast<uint32_t>(value))
             continue;
@@ -778,10 +760,6 @@ void TilesetEditor::assignBehavior(int value) {
     }
     if (step->edits.isEmpty()) {
         delete step;
-        if (skippedZero) {
-            refuseEntryZero();
-            return;
-        }
         if (!this->lastBehaviorApplied.isValid() || this->lastBehaviorApplied.elapsed() > 1500)   // (not right after the click that did apply it: a double click would report "already")
             this->ui->statusbar->showMessage(QString("The selected metatile(s) already have behavior %1.").arg(this->behaviorPanel->nameOf(value)), 4000);
         return;
@@ -805,10 +783,6 @@ void TilesetEditor::assignNumberedLabels(const QString &baseName) {
     const QList<uint16_t> ids = this->behaviorSelector->selectedCells();
     if (base.isEmpty() || ids.size() < 2)
         return;   // (an empty field with several metatiles selected changes nothing)
-    if (ids.contains(0)) {   // (the erase entry is never named: nothing at all changes)
-        refuseEntryZero();
-        return;
-    }
     IdentifierValidator validator;
     QStringList names;
     for (int i = 0; i < ids.size(); i++)
@@ -1082,8 +1056,6 @@ bool TilesetEditor::endStroke() {
 // Puts one tile into slot `tileIndex` of a metatile (inside a stroke): remembers the metatile as it was, keeps the tile usage counts and reports it
 // in *changed. False when nothing had to change.
 bool TilesetEditor::writeSheetTile(uint16_t metatileId, int tileIndex, const Tile &value, QSet<uint16_t> *changed) {
-    if (metatileId == 0)
-        return false;   // (the erase entry: see allowEntryZero)
     Metatile *metatile = block(metatileId);
     if (!metatile || tileIndex < 0 || tileIndex >= metatile->tiles.size() || metatile->tiles[tileIndex] == value)
         return false;   // (nothing to change: no history, no redraw)
@@ -1122,18 +1094,9 @@ void TilesetEditor::paintBrushAt(const QPoint &originTile) {
     QSet<uint16_t> changed;
     auto lands = [sheet](const QPoint &tile) { return sheet->tileSlot(tile, nullptr, nullptr); };
     const QList<TileBrush::StampWrite> writes = brush.plan(originTile, lands);
-    QSet<uint16_t> targets;
-    for (const TileBrush::StampWrite &write : writes) {
-        uint16_t metatileId;
-        if (sheet->tileSlot(write.tile, &metatileId, nullptr))
-            targets.insert(metatileId);
-    }
-    const bool zeroAllowed = allowEntryZero(targets);
     for (const TileBrush::StampWrite &write : writes) {
         uint16_t metatileId; int sub;
         sheet->tileSlot(write.tile, &metatileId, &sub);
-        if (metatileId == 0 && !zeroAllowed)
-            continue;
         writeSheetTile(metatileId, layer * Metatile::tilesPerLayer() + sub, write.value, &changed);
     }
     finishSheetEdit(changed);
@@ -1153,19 +1116,12 @@ void TilesetEditor::deleteSelectedTiles() {
         this->ui->statusbar->showMessage(QString("The %1 layer is hidden: show it (eye) to clear tiles on it.").arg(Metatile::getLayerName(layer)), 6000);
         return;
     }
-    QSet<uint16_t> targets;
-    for (const QPoint &tile : sheet->tileSelection()) {
-        uint16_t metatileId;
-        if (sheet->tileSlot(tile, &metatileId, nullptr))
-            targets.insert(metatileId);
-    }
-    const bool zeroAllowed = allowEntryZero(targets);
     beginStroke();
     QSet<uint16_t> changed;
     int cleared = 0;
     for (const QPoint &tile : sheet->tileSelection()) {
         uint16_t metatileId; int sub;
-        if (sheet->tileSlot(tile, &metatileId, &sub) && (metatileId != 0 || zeroAllowed) && writeSheetTile(metatileId, layer * Metatile::tilesPerLayer() + sub, Tile(), &changed))
+        if (sheet->tileSlot(tile, &metatileId, &sub) && writeSheetTile(metatileId, layer * Metatile::tilesPerLayer() + sub, Tile(), &changed))
             cleared++;
     }
     finishSheetEdit(changed);
@@ -1208,8 +1164,6 @@ void TilesetEditor::clearFields() {
     std::sort(ids.begin(), ids.end());
     if (ids.isEmpty())
         ids.append(selectedBlockId());
-    if (!allowEntryZero(QSet<uint16_t>(ids.begin(), ids.end())))
-        ids.removeAll(0);
     const uint32_t blankAttributes = blankMetatile().getAttributes();
     beginStroke();
     QSet<uint16_t> changed;
@@ -1512,8 +1466,6 @@ void TilesetEditor::showMetatileStatus(uint16_t metatileId) {
     if (label.size() != 0) {
         message += QString(" \"%1\"").arg(label);
     }
-    if (metatileId == 0)
-        message += QStringLiteral("  (the erase entry: always empty, never edited)");
     this->ui->statusbar->showMessage(message);
 }
 
@@ -1601,11 +1553,6 @@ void TilesetEditor::commitMetatileLabel() {
     uint16_t metatileId = selectedBlockId();
     QString oldLabel = ownedLabel(metatileId);
     QString newLabel = this->ui->lineEdit_MetatileLabel->text();
-    if (metatileId == 0 && oldLabel != newLabel) {   // (the erase entry is never named)
-        this->ui->lineEdit_MetatileLabel->setText(oldLabel);
-        refuseEntryZero();
-        return;
-    }
     if (oldLabel != newLabel && labelBelongsToAnotherMetatile(newLabel, metatileId)) {
         this->ui->statusbar->showMessage(QString("Nothing changed: the label \"%1\" belongs to another metatile.").arg(newLabel), 8000);
         this->ui->lineEdit_MetatileLabel->setText(oldLabel);
@@ -1920,10 +1867,6 @@ bool TilesetEditor::replaceMetatile(uint16_t metatileId, const Metatile &src, QS
     QString oldLabel = ownedLabel(metatileId);
     if (!dest || (*dest == src && oldLabel == newLabel))
         return false;
-    if (metatileId == 0) {   // (paste, cut and swap all end up here: the erase entry never takes another block)
-        refuseEntryZero();
-        return false;
-    }
 
     setLabel(metatileId, newLabel);
     if (metatileId == selectedBlockId())
@@ -2504,11 +2447,6 @@ void TilesetEditor::recordLayoutSwap(uint16_t metatileIdA, uint16_t metatileIdB)
 
 bool TilesetEditor::swapMetatiles(uint16_t metatileIdA, uint16_t metatileIdB) {
     this->metatileSelector->clearSwapSelection();
-    if (metatileIdA == 0 || metatileIdB == 0) {   // (nothing half-done: a swap involving the erase entry does not start)
-        refuseEntryZero();
-        return false;
-    }
-
     QList<Metatile*> metatiles;
     for (const auto &metatileId : {metatileIdA, metatileIdB}) {
         Metatile *metatile = block(metatileId);

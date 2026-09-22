@@ -32,11 +32,18 @@ release below. See `ARCHITECTURE.md` for the implementation-level explanation an
 ### Changed
 - The old Map Objects / prefabs system (`prefab.*`, `prefabcreationdialog.*`, `prefabframe.*`, `metatilelayersitem.*`)
   was removed; the Porymap-view workflow above replaces it.
+- **Entry 0 (metatile 0 / porytile 0 of the primary tileset) is an ordinary entry now**, not a protected "erase id".
+  It used to be forced blank on every load and refused by every edit; that's gone — it's paintable, can carry a
+  behavior and a label, and `Write to Finalmap` / `Pull to Porymap` may reuse or fill it exactly like any other id.
+  Resetting a field still means painting porytile 0 / metatile 0 there; what that now shows is simply whatever
+  entry 0 holds. See "Entry 0" in `ARCHITECTURE.md`.
 
 ### Verified with
 - A headless UI test harness (not part of this repository) that boots the real `MainWindow`, drives it with real
   synthetic mouse/keyboard events against a cloned project, and compares rendered pixels and on-disk JSON: ~1100
   checks, each with at least one negative control (a deliberate bug that must make the check fail, then is reverted).
+- The entry-0 change specifically also against this fork's own live project (real tilesets, a real 60x80 map):
+  `Pull to Porymap` pixel-identical to the Finalmap, `Write to Finalmap` immediately after changes nothing.
 
 [fork]: https://github.com/Dragonflysots/porymap-triple-layer
 

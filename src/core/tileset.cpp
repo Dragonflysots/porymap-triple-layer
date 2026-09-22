@@ -911,46 +911,7 @@ bool Tileset::load() {
     if (!loadMetatiles()) success = false;
     if (!loadMetatileAttributes()) success = false;
     loadPorytiles();   // (never fails the tileset)
-    enforceEmptyEntryZero();
     return success;
-}
-
-// CUSTOM ENGINE: entry 0 of the PRIMARY tileset -- metatile 0 and porytile 0 -- is the erase entry, the "delete id" of both maps: all of its tiles
-// are tile 0 with palette 0, it has no behavior and (for a porytile) no label. No tool ever writes to it (the Tileset Editor refuses, Write and
-// Pull never hand it out), and loading makes sure it is what it is supposed to be, so an empty layer or an empty field really draws nothing.
-// Returns true when something had to be emptied.
-bool Tileset::enforceEmptyEntryZero() {
-    if (this->is_secondary)
-        return false;
-    bool metatileChanged = false, porytileChanged = false;
-    if (!m_metatiles.isEmpty()) {
-        for (Tile &tile : m_metatiles.first()->tiles) {
-            if (tile.rawValue() != 0) {
-                tile = Tile();
-                metatileChanged = true;
-            }
-        }
-    }
-    if (!m_porytiles.isEmpty()) {
-        Metatile *porytile = m_porytiles.first();
-        for (Tile &tile : porytile->tiles) {
-            if (tile.rawValue() != 0) {
-                tile = Tile();
-                porytileChanged = true;
-            }
-        }
-        if (porytile->behavior() != 0) {
-            porytile->setBehavior(0);
-            porytileChanged = true;
-        }
-        if (this->porytileLabels.remove(0) > 0)
-            porytileChanged = true;
-    }
-    if (metatileChanged)
-        logWarn(QString("Metatile 0 of '%1' was not empty. It is the erase entry and is always empty, so its tiles were set to tile 0 (saved with the next tileset save).").arg(this->name));
-    if (porytileChanged)
-        logWarn(QString("Porytile 0 of '%1' was not empty. It is the erase entry and is always empty, so it was emptied (saved with the next tileset save).").arg(this->name));
-    return metatileChanged || porytileChanged;
 }
 
 // Because metatile labels are global (and handled by the project) we don't save them here.

@@ -148,16 +148,14 @@ bool needsSecondaryTileset(const QList<Tile> &tiles) {
 
 // Hands out slots in the two tilesets for blocks of one kind: an existing identical block, else an empty slot that
 // nothing uses, else a new one at the end (the tileset grows within the room its half of the id space leaves it).
-// `keepIdZero`: entry 0 of the primary tileset is the ERASE entry (the "delete id": 12 resp. 4 tiles of tile 0). It is never handed
-// out as an empty slot, never overwritten, and never matches a block that has art in it -- it only stands for "nothing".
-// An empty slot can be BOTH: the block a blank field matches and a slot to fill. Whichever happens first wins, and the
-// other use is dropped -- a slot that was handed out as a match is no longer free, and a slot that gets filled loses the
-// key it had while it was blank.
+// Every id, including 0, is an ordinary candidate: an empty slot can be BOTH the block a blank field matches and a
+// slot to fill. Whichever happens first wins, and the other use is dropped -- a slot that was handed out as a match
+// is no longer free, and a slot that gets filled loses the key it had while it was blank.
 class Allocator {
 public:
-    Allocator(BlockKind kind, Tileset *primary, Tileset *secondary, const QVector<int> &used, const QSet<uint16_t> &usedIds, bool keepIdZero,
+    Allocator(BlockKind kind, Tileset *primary, Tileset *secondary, const QVector<int> &used, const QSet<uint16_t> &usedIds,
               bool mayFillPrimary = true, bool mayFillSecondary = true)
-        : kind(kind), primary(primary), secondary(secondary), keepIdZero(keepIdZero) {
+        : kind(kind), primary(primary), secondary(secondary) {
         this->firstSecondaryId = Project::getNumMetatilesPrimary();
         this->primaryCount = primary ? primary->numBlocks(kind) : 0;
         this->secondaryCount = secondary ? secondary->numBlocks(kind) : 0;
@@ -174,13 +172,10 @@ public:
                 if (!block)
                     continue;
                 const QString key = blockKey(*block, kind == BlockKind::Metatile ? block->behavior() : 0);
-                const bool reserved = this->keepIdZero && id == 0;
-                // Entry 0 is the erase entry (see keepIdZero): it is only ever "the block with nothing in it", never a match for art.
-                if (!reserved || allTilesZero(block))
-                    this->candidates[key].append(id);   // ascending: the lowest id is the one that gets reused
+                this->candidates[key].append(id);   // ascending: the lowest id is the one that gets reused
                 const bool labelled = tileset->blockLabels(kind).contains(id) && !tileset->blockLabels(kind).value(id).isEmpty();
                 const bool inUse = (id < used.size() && used.at(id) > 0) || usedIds.contains(id);
-                if ((isSecondary ? mayFillSecondary : mayFillPrimary) && allTilesZero(block) && !labelled && !inUse && !reserved && block->behavior() == 0) {
+                if ((isSecondary ? mayFillSecondary : mayFillPrimary) && allTilesZero(block) && !labelled && !inUse && block->behavior() == 0) {
                     (isSecondary ? this->freeSecondary : this->freePrimary).append(id);
                     this->keyWhileBlank.insert(id, key);
                 }
@@ -269,7 +264,6 @@ private:
     BlockKind kind;
     Tileset *primary;
     Tileset *secondary;
-    bool keepIdZero;
     int firstSecondaryId;
     int primaryCount, secondaryCount, primaryCap, secondaryCap;
     QHash<QString, QList<uint16_t>> candidates;
@@ -297,14 +291,13 @@ QString describeSlot(const char *what, int id) {
     return QString("%1 %2").arg(QLatin1String(what)).arg(id);
 }
 
-// The writes of a plan may only ever fill an EMPTY slot or a new one at the end -- never entry 0 (the erase entry), never a block that
-// has art (or a label or a behavior) in it. Returns an error text, or nothing.
+// The writes of a plan may only ever fill an EMPTY slot or a new one at the end -- never a block that has art (or a
+// label or a behavior) in it. Entry 0 is an ordinary id here: it may be filled exactly like any other empty slot.
+// Returns an error text, or nothing.
 QString checkWritesOnlyTouchEmptySlots(const QList<MapTransfer::BlockWrite> &writes, BlockKind kind, const Tileset *primary, const Tileset *secondary) {
     const char *what = kind == BlockKind::Metatile ? "metatile" : "porytile";
     QSet<uint16_t> seen;
     for (const MapTransfer::BlockWrite &write : writes) {
-        if (write.id == 0)
-            return QString("Internal check failed: the plan wanted to write %1 0, the erase entry, which is never touched.").arg(what);
         if (seen.contains(write.id))
             return QString("Internal check failed: the plan wanted to write %1 twice.").arg(describeSlot(what, write.id));
         seen.insert(write.id);
@@ -342,16 +335,13 @@ QString verifyPush(const MapTransfer::PushPlan &plan, const PreMap *preMap, Layo
     return QString();
 }
 
-// Pull: every layer of every field must show exactly the tiles of that layer of the field's metatile, and Porytile 0 -- which every
-// empty layer refers to -- must be empty.
+// Pull: every layer of every field must show exactly the tiles of that layer of the field's metatile (whichever porytile
+// that layer landed on -- a blank layer is allocated like any other content, see planPull, so this does not assume any
+// particular id is blank).
 QString verifyPull(const MapTransfer::PullPlan &plan, Layout *layout, Tileset *primary, Tileset *secondary) {
     QString problem = checkWritesOnlyTouchEmptySlots(plan.writes, BlockKind::Porytile, primary, secondary);
     if (!problem.isEmpty())
         return problem;
-    const Metatile *zero = Tileset::getPorytile(0, primary, secondary);
-    if (!zero || !allTilesZero(zero))
-        return QStringLiteral("Porytile 0 is not empty. It is the erase entry every empty layer refers to, so it must have no tiles: "
-                              "empty it in the Tileset Editor (Porytiles tab) or reopen the project, then pull again.");
     QHash<uint16_t, const Metatile *> written;
     for (const MapTransfer::BlockWrite &write : plan.writes)
         written.insert(write.id, &write.value);
@@ -470,7 +460,7 @@ PushPlan planPush(Layout *layout, const PreMap *preMap, Project *project) {
 
     bool primaryComplete = true, secondaryComplete = true;
     const QVector<int> used = metatileUsage(project, primary, secondary, layout->id, &primaryComplete, &secondaryComplete);
-    Allocator allocator(BlockKind::Metatile, primary, secondary, used, QSet<uint16_t>(), true, primaryComplete, secondaryComplete);
+    Allocator allocator(BlockKind::Metatile, primary, secondary, used, QSet<uint16_t>(), primaryComplete, secondaryComplete);
     if (!primaryComplete || !secondaryComplete)
         plan.notes << QString("A layout of this project could not be read, so the empty slots of the %1 tileset were left alone (new metatiles are added instead).")
                           .arg(!primaryComplete && !secondaryComplete ? "primary and secondary" : (primaryComplete ? "secondary" : "primary"));
@@ -598,8 +588,10 @@ PullPlan planPull(Layout *layout, const PreMap *preMap, Project *project) {
         return plan;
     }
 
-    // Porytile 0 is the default fill of every layer and must keep being blank, so it is never handed out as a free slot.
-    Allocator allocator(BlockKind::Porytile, primary, secondary, QVector<int>(), porytileUsage(project, layout->id), true);
+    // Porytile 0 is the default fill of every layer, but it is an ordinary porytile now: a blank layer is looked up and
+    // allocated exactly like any other content below, so it lands on whichever porytile is (still) blank -- id 0 if that
+    // one still is, otherwise whatever else matches or gets created.
+    Allocator allocator(BlockKind::Porytile, primary, secondary, QVector<int>(), porytileUsage(project, layout->id));
     const int perLayer = Metatile::tilesPerLayer();
 
     plan.fields = size.width() * size.height();
@@ -626,45 +618,40 @@ PullPlan planPull(Layout *layout, const PreMap *preMap, Project *project) {
             uint32_t derived = 0;
             for (int layer = 0; layer < 3; layer++) {
                 QList<Tile> tiles;
-                bool blank = true;
-                for (int i = 0; i < perLayer; i++) {
-                    const Tile tile = metatile->tiles.value(layer * perLayer + i);
-                    tiles.append(tile);
-                    if (tile.tileId != 0)
-                        blank = false;
-                }
-                uint16_t porytileId = 0;
-                if (!blank) {
-                    const QString key = tilesKey(tiles);
-                    bool found = false;
-                    porytileId = allocator.lookupExisting(key, &found);
-                    if (found) {
-                        // count porytiles, not fields -- and only those that existed before: one this plan just created is not "reused"
-                        if (!createdHere.contains(porytileId) && !reusedIds.contains(porytileId)) {
-                            reusedIds.insert(porytileId);
-                            plan.reusedPorytiles++;
-                        }
-                    } else {
-                        Metatile porytile(Tileset::tilesPerBlock(BlockKind::Porytile));
-                        for (int i = 0; i < perLayer; i++)
-                            porytile.tiles[i] = tiles.at(i);
-                        const bool needsSecondary = needsSecondaryTileset(tiles);
-                        BlockWrite write;
-                        if (!allocator.allocate(porytile, needsSecondary, &write)) {
-                            plan.error = QString("There is no room for a new porytile: the primary tileset holds %1 and the secondary %2. "
-                                                 "Raise the porytile count in the Tileset Editor (Change Number of Porytiles) and try again.")
-                                             .arg(primary->numPorytiles()).arg(secondary->numPorytiles());
-                            plan.writes.clear();
-                            return plan;
-                        }
-                        plan.writes.append(write);
-                        plan.createdPorytiles++;
-                        (write.tileset == secondary ? plan.createdSecondary : plan.createdPrimary)++;
-                        porytileId = write.id;
-                        createdHere.insert(porytileId);
-                        allocator.remember(key, porytileId);
-                    }
+                for (int i = 0; i < perLayer; i++)
+                    tiles.append(metatile->tiles.value(layer * perLayer + i));
 
+                // A blank layer (every tile id 0) is looked up and allocated exactly like any other content: it lands on
+                // whichever porytile is already blank (the lowest id, so ordinarily 0), or a new blank one is created if
+                // none is free. Entry 0 is not assumed to be blank any more -- see ARCHITECTURE.md.
+                const QString key = tilesKey(tiles);
+                bool found = false;
+                uint16_t porytileId = allocator.lookupExisting(key, &found);
+                if (found) {
+                    // count porytiles, not fields -- and only those that existed before: one this plan just created is not "reused"
+                    if (!createdHere.contains(porytileId) && !reusedIds.contains(porytileId)) {
+                        reusedIds.insert(porytileId);
+                        plan.reusedPorytiles++;
+                    }
+                } else {
+                    Metatile porytile(Tileset::tilesPerBlock(BlockKind::Porytile));
+                    for (int i = 0; i < perLayer; i++)
+                        porytile.tiles[i] = tiles.at(i);
+                    const bool needsSecondary = needsSecondaryTileset(tiles);
+                    BlockWrite write;
+                    if (!allocator.allocate(porytile, needsSecondary, &write)) {
+                        plan.error = QString("There is no room for a new porytile: the primary tileset holds %1 and the secondary %2. "
+                                             "Raise the porytile count in the Tileset Editor (Change Number of Porytiles) and try again.")
+                                         .arg(primary->numPorytiles()).arg(secondary->numPorytiles());
+                        plan.writes.clear();
+                        return plan;
+                    }
+                    plan.writes.append(write);
+                    plan.createdPorytiles++;
+                    (write.tileset == secondary ? plan.createdSecondary : plan.createdPrimary)++;
+                    porytileId = write.id;
+                    createdHere.insert(porytileId);
+                    allocator.remember(key, porytileId);
                 }
                 plan.layers[layer][index] = porytileId;
                 // A porytile this plan creates carries no behavior yet; a reused one keeps the behavior it has.

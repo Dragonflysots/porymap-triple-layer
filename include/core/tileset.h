@@ -88,7 +88,6 @@ public:
     void resizePorytiles(int count);
     void clearPorytiles();
     bool loadPorytiles();   // never fails the tileset: a missing file means kDefaultNumPorytiles blank porytiles, a corrupt one is set aside (see porytilesLoadError)
-    bool enforceEmptyEntryZero();   // CUSTOM ENGINE: entry 0 of the primary tileset (metatile 0 + porytile 0) is the always-empty erase entry
     bool savePorytiles();
     QString porytilesLoadError;   // what was wrong with porytiles.json when it was loaded (empty: nothing); the file was renamed to *.corrupt-<time> then
     static QString porytilesPathFor(const QString &metatilesPath);

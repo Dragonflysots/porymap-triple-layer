@@ -77,7 +77,8 @@ private:
 };
 
 // CUSTOM ENGINE: "Clear Layers" (the eraser in the Porymap view): the chosen layers -- and, if asked, the placed behaviors -- of the WHOLE map go back to
-// what an empty map holds: Porytile 0 (the erase entry) on every field, behavior Auto. A snapshot of the grid from before makes the undo exact.
+// what an empty map holds: Porytile 0 (the default fill; an ordinary porytile like any other, whatever it happens to hold) on every field, behavior Auto.
+// A snapshot of the grid from before makes the undo exact.
 // Clearing the behaviors clears that layout's behavior history (its steps describe a grid this command replaces), like Pull to Porymap does.
 class PreMapClearCommand : public QUndoCommand {
 public:
