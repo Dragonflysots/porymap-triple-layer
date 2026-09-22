@@ -423,6 +423,7 @@ private:
     void refreshBehaviorList();
     bool transferPreconditionsOk(const QString &what);   // CUSTOM ENGINE: guards of Write to Finalmap / Pull to Porymap
     void updateTransferButtons();                        // Write to Finalmap only on the Porymap tab, Pull to Porymap only on the Finalmap tab
+    void applyPorytileWorkflowVisibility();               // CUSTOM ENGINE: on/off switch -- hides the whole Porymap workflow for a project that doesn't use it
     void onEraserClicked();                              // CUSTOM ENGINE: the eraser button: Clear Layers (Porymap tab) / Clean the Map (Finalmap tab)
     void clearPorymapLayers();
     void cleanFinalmap();

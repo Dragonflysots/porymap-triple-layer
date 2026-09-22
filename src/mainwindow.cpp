@@ -394,7 +394,9 @@ void MainWindow::syncTopTabBar() {
         this->topTabBar->setTabIcon(top, ui->mainTabBar->tabIcon(logical));
     }
     this->topTabBar->setCurrentIndex(current <= MainTab::Map ? 0 : current - 1);
-    ui->mainTabBar->setVisible(current <= MainTab::Map);   // (the sub-tabs only while Maps is showing)
+    // The sub-tab row only while Maps is showing -- AND only for a project that uses the Porymap workflow at all; otherwise
+    // it would be a single-tab strip ("Finalmap") with nothing to switch to, which the original Porymap never had either.
+    ui->mainTabBar->setVisible(current <= MainTab::Map && projectConfig.tripleLayerMetatilesEnabled);
 }
 
 void MainWindow::overrideMainTabIcons(const QIcon& icon) {
@@ -1751,6 +1753,9 @@ bool MainWindow::setProjectUI() {
 
     // Wild Encounters tab
     ui->mainTabBar->setTabEnabled(MainTab::WildPokemon, editor->project->wildEncountersLoaded);
+
+    // CUSTOM ENGINE: on/off switch for the whole Porymap/porytile workflow, see applyPorytileWorkflowVisibility().
+    applyPorytileWorkflowVisibility();
     syncTopTabBar();
 
     ui->newEventToolButton->setEventTypeVisible(Event::Type::WeatherTrigger, projectConfig.eventWeatherTriggerEnabled);
@@ -3227,6 +3232,23 @@ void MainWindow::setSecondaryTileset(const QString &tilesetLabel) {
 
 // ---- CUSTOM ENGINE: Write to Finalmap / Pull to Porymap --------------------------------------------------------------------------------
 
+// The on/off switch for the whole Porymap/porytile workflow: "Project Settings > Enable triple layer metatiles". A project
+// that doesn't use it never sees the Porymap tab, its layer bar, the Write/Pull buttons, the eraser, or the Tileset Editor's
+// Porytiles tab -- so this same binary can also open an unrelated / vanilla project without any of that in the way. Called
+// once from setProjectUI() when a project opens, and again through Project Settings' "reload project to apply changes?"
+// whenever the setting is changed (every save there asks for a reload already, see ProjectSettingsEditor::closeEvent()).
+void MainWindow::applyPorytileWorkflowVisibility() {
+    const bool active = projectConfig.tripleLayerMetatilesEnabled;
+    ui->mainTabBar->setTabVisible(MainTab::Porymap, active);
+    if (!active && ui->mainTabBar->currentIndex() == MainTab::Porymap) {
+        ui->mainTabBar->setCurrentIndex(MainTab::Map);
+        this->lastMapsTab = MainTab::Map;
+    }
+    updateTransferButtons();
+    if (this->tilesetEditor)
+        this->tilesetEditor->updatePorytilesTabVisibility();
+}
+
 std::function<int()> MainWindow::pushToFinalmapPrompt;
 std::function<int()> MainWindow::pullToPorymapPrompt;
 QString MainWindow::lastPullQuestion;
@@ -3272,6 +3294,14 @@ void MainWindow::onTilesetsTransferred() {
 // Write to Finalmap goes from the Porymap to the Finalmap, so it is on the Porymap tab; Pull to Porymap goes the other way, so it is on the
 // Finalmap tab. Nowhere else (Events, Connections, ...) is either of them useful.
 void MainWindow::updateTransferButtons() {
+    if (!projectConfig.tripleLayerMetatilesEnabled) {
+        // The on/off switch: this project doesn't use the Porymap workflow, so none of it is offered.
+        ui->pushButton_PushToFinalmap->setVisible(false);
+        ui->pushButton_PullToPorymap->setVisible(false);
+        if (this->eraserButton)
+            this->eraserButton->setVisible(false);
+        return;
+    }
     const int tab = ui->mainTabBar->currentIndex();
     ui->pushButton_PushToFinalmap->setVisible(tab == MainTab::Porymap);
     ui->pushButton_PullToPorymap->setVisible(tab == MainTab::Map);

@@ -220,8 +220,16 @@ BlockKind TilesetEditor::kind() const {
 // page that is showing; the sheets switch the kind of block they show, and the layer bar (metatiles only) hides on the Porytiles page.
 void TilesetEditor::initKindTabs() {
     connect(ui->tabWidget_TilesetEditor, &QTabWidget::currentChanged, this, &TilesetEditor::onKindTabChanged);
-    ui->tabWidget_TilesetEditor->setCurrentWidget(ui->tab_Porytiles);
+    updatePorytilesTabVisibility();
     onKindTabChanged(ui->tabWidget_TilesetEditor->currentIndex());
+}
+
+// CUSTOM ENGINE: see the declaration in the header.
+void TilesetEditor::updatePorytilesTabVisibility() {
+    const bool active = projectConfig.tripleLayerMetatilesEnabled;
+    const int index = ui->tabWidget_TilesetEditor->indexOf(ui->tab_Porytiles);
+    ui->tabWidget_TilesetEditor->setTabVisible(index, active);
+    ui->tabWidget_TilesetEditor->setCurrentWidget(active ? ui->tab_Porytiles : ui->tab_GeneratedMetatiles);
 }
 
 void TilesetEditor::onKindTabChanged(int) {

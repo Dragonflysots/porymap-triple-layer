@@ -100,6 +100,12 @@ public:
     void reloadTilesetsFromProject();
     int tilesetGeneration = 0;   // the project's tilesetTransferGeneration when these copies were taken
 
+    // CUSTOM ENGINE: on/off switch (Project Settings > Enable triple layer metatiles). Hides the Porytiles tab -- and with
+    // it its layer bar and everything on it -- for a project that doesn't use the Porymap workflow, leaving just the
+    // original, single Generated Metatiles tab. Called from initKindTabs() and again by MainWindow if the project setting
+    // changes while this editor is already open.
+    void updatePorytilesTabVisibility();
+
 public slots:
     void applyUserShortcuts();
     void onSelectedMetatileChanged(uint16_t);
